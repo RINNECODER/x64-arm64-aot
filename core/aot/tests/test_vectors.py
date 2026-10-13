@@ -219,6 +219,20 @@ int main(void) {
                 with self.subTest(operation=operation, control=control):
                     self.compare(f'{operation} xmm0, xmm1, {control}', self.random_samples())
 
+    def test_optimized_byte_processing_against_x86(self):
+        samples = self.random_samples(64) + [(bytes([a]) * 16, bytes([b]) * 16, 0)
+                    for a in (0, 1, 127, 128, 255) for b in (0, 1, 127, 128, 255)]
+        for op in ('paddb', 'pmaxub', 'pcmpeqb', 'pcmpeqd', 'punpcklbw', 'punpcklwd'):
+            self.compare(f'{op} xmm0, xmm1', samples)
+        self.compare('movmskps eax, xmm0', samples, 'gpr')
+
+    def test_arithmetic_vector_shift_against_x86(self):
+        samples = [(left, struct.pack('<QQ', count, 0xdeadbeef), scalar) for left, _, scalar in self.random_samples(8)
+                   for count in (0, 1, 15, 31, 32, 63, 255, 1 << 32, (1 << 64) - 1)]
+        self.compare('psrad xmm0, xmm1', samples)
+        for count in (0, 1, 31, 32, 255):
+            self.compare(f'psrad xmm0, {count}', self.random_samples())
+
     def test_shift_counts_against_x86(self):
         samples = [(left, struct.pack('<QQ', count, 0xdeadbeef), scalar) for left, _, scalar in self.random_samples(4)
                    for count in (0, 1, 15, 31, 32, 63, 255, 1 << 32, (1 << 64) - 1)]

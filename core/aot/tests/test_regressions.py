@@ -52,6 +52,32 @@ class CompilerRegressionTests(unittest.TestCase):
         contracts['sha256'] = hashlib.sha256(raw).hexdigest()
         return bytes(raw), contracts
 
+    def test_partial_register_copy_and_lea_loop_only_observes_defined_byte(self):
+        code = self.assemble("""mov dil, 1
+xor eax, eax
+1:
+mov ecx, edi
+lea edi, [rcx+1]
+inc eax
+cmp eax, 3
+jb 1b
+movzx eax, cl
+ret""")
+        function, _, _ = self.compile(*fixture(code, result='u32'))
+        self.assertEqual(function(), 3)
+
+    def test_high_byte_survives_wide_copy_without_defining_unknown_bits(self):
+        code = self.assemble('mov ah, 42\nmov ecx, eax\nmovzx eax, ch\nret')
+        function, _, _ = self.compile(*fixture(code, result='u32'))
+        self.assertEqual(function(), 42)
+
+    def test_partial_copy_cannot_escape_through_return_memory_or_address(self):
+        for ending in ('mov eax, ecx\nret', 'mov [rsi], ecx\nxor eax,eax\nret',
+                       'mov eax,[rcx]\nret', 'cmp ecx,1\nsete al\nmovzx eax,al\nret'):
+            code = self.assemble('mov dil, 1\nmov ecx, edi\n' + ending)
+            with self.subTest(ending=ending), self.assertRaisesRegex(Rejected, 'ABI or dataflow does not define'):
+                compile_image(self.image(*fixture(code, parameters=['u8', 'ptr'], result='u32')))
+
     def test_stack_object_preserves_stack_pointer_identity(self):
         raw, contracts = fixture(bytes.fromhex('4883ec10488d04244829e04883c410c3'))
         contracts['functions'][0]['stack_objects'] = [{'offset': -16, 'size': 16, 'alignment': 16}]

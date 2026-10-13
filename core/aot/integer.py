@@ -9,10 +9,11 @@ CONDITIONS = {
 }
 ALIASES = {'z': 'e', 'nz': 'ne', 'c': 'b', 'nc': 'ae', 'na': 'be', 'nbe': 'a',
            'nb': 'ae', 'nae': 'b', 'ng': 'le', 'nge': 'l', 'nl': 'ge', 'nle': 'g', 'pe': 'p', 'po': 'np'}
+ROTATES = {'rol', 'ror'}
 SHIFTS = {'shl', 'sal', 'shr', 'sar'}
 OPERATIONS = {'inc', 'dec', 'imul', 'sbb', 'adc', 'cdqe', 'cdq', 'cwd', 'cqo', 'neg', 'not', 'div', 'idiv', 'blsr', 'bt', 'bts', 'btr', 'btc', 'bsf', 'bsr', 'mul', 'cwde', 'bswap',
               'shld', 'shrd', 'cld', 'std',
-              'prefetchnta', 'prefetcht0', 'prefetcht1', 'prefetcht2', 'prefetchw'} | SHIFTS
+              'prefetchnta', 'prefetcht0', 'prefetcht1', 'prefetcht2', 'prefetchw'} | SHIFTS | ROTATES
 
 
 def condition(ins):
@@ -46,6 +47,14 @@ def analyze(function, ins, state):
                 function.read_operand(ins, state, operand)
         elif len(args) != 1 or args[0].size != 1:
             function.fail(ins, 'unsupported conditional set operands')
+        function.define(ins, state, args[0])
+        return True
+    if op == 'bswap':
+        if len(args) != 1 or args[0].type != X86_OP_REG or args[0].size not in (4, 8):
+            function.fail(ins, 'byte swap requires a 32-bit or 64-bit register')
+        if function.reg(ins, args[0])[0] in ('rsp', 'rbp'):
+            function.fail(ins, 'byte swap cannot reconstruct a dynamic native frame')
+        function.read_operand(ins, state, args[0])
         function.define(ins, state, args[0])
         return True
     if op in ('blsr', 'bt'):
@@ -149,6 +158,15 @@ def analyze(function, ins, state):
         function.read_operand(ins, state, operand)
     if op in ('adc', 'sbb') and 'cf' not in state['flags']:
         function.fail(ins, 'carry input is not defined')
+    if op in ROTATES:
+        width = args[0].size * 8
+        if len(args) != 2 or width not in (8, 16, 32, 64) or args[1].type != X86_OP_IMM:
+            function.fail(ins, 'rotate requires a qualified immediate count')
+        count = args[1].imm & (63 if width == 64 else 31)
+        if count:
+            state['flags'] = (state['flags'] - {'cf', 'of'}) | {'cf'} | ({'of'} if count == 1 else set())
+        function.define(ins, state, args[0])
+        return True
     if op in SHIFTS:
         width = args[0].size * 8
         if len(args) != 2 or width not in (8, 16, 32, 64):
@@ -202,7 +220,7 @@ def lower_shift(function, ins):
             function.write(ins, args[0], function.read(ins, args[0]))
         return
     previous = function.states[ins.address]['flags']
-    old = {name: load_flag(function, name) if name in previous else 'false' for name in FLAGS}
+    old = {name: load_flag(function, name) if name in previous else 'false' for name in sorted(FLAGS)}
     value = function.read(ins, args[0])
     raw_count = function.read(ins, args[1])
     count_width = args[1].size * 8
@@ -234,9 +252,32 @@ def lower_shift(function, ins):
         overflow = 'false'
     store_flag(function, 'cf', carry)
     store_flag(function, 'of', overflow)
-    for name in FLAGS:
+    for name in sorted(FLAGS):
         current = load_flag(function, name)
         store_flag(function, name, function.emit(f'select i1 {zero}, i1 {old[name]}, i1 {current}'))
+    function.write(ins, args[0], result)
+
+
+def lower_rotate(function, ins):
+    args = ins.operands
+    width = args[0].size * 8
+    count = args[1].imm & (63 if width == 64 else 31)
+    value = function.read(ins, args[0])
+    shift = count % width
+    result = value
+    if shift:
+        left, right = (shift, width - shift) if ins.mnemonic == 'rol' else (width - shift, shift)
+        high = function.emit(f'shl i{width} {value}, {left}')
+        low = function.emit(f'lshr i{width} {value}, {right}')
+        result = function.emit(f'or i{width} {high}, {low}')
+    if count:
+        high = function.emit(f'icmp slt i{width} {result}, 0')
+        carry = function.emit(f'trunc i{width} {result} to i1') if ins.mnemonic == 'rol' else high
+        store_flag(function, 'cf', carry)
+        if count == 1:
+            other = carry if ins.mnemonic == 'rol' else function.emit(f'icmp ne i{width} ' +
+                function.emit(f'and i{width} {result}, {1 << (width - 2)}') + ', 0')
+            store_flag(function, 'of', function.emit(f'xor i1 {high}, {other}'))
     function.write(ins, args[0], result)
 
 
@@ -293,6 +334,16 @@ def lower(function, ins):
             width = args[0].size * 8
             old, new = function.read(ins, args[0]), function.read(ins, args[1])
             value = function.emit(f'select i1 {predicate}, i{width} {new}, i{width} {old}')
+        function.write(ins, args[0], value)
+    elif op == 'bswap':
+        width = args[0].size * 8
+        source = function.read(ins, args[0])
+        value = '0'
+        for index in range(width // 8):
+            byte = function.emit(f'lshr i{width} {source}, {index * 8}')
+            byte = function.emit(f'and i{width} {byte}, 255')
+            byte = function.emit(f'shl i{width} {byte}, {width - 8 - index * 8}')
+            value = function.emit(f'or i{width} {value}, {byte}')
         function.write(ins, args[0], value)
     elif op == 'blsr':
         width = args[0].size * 8
@@ -409,6 +460,8 @@ def lower(function, ins):
             function.store('rdx', function.emit(f'ashr i{width} {value}, {width - 1}'), width)
     elif op in ('div', 'idiv'):
         lower_divide(function, ins)
+    elif op in ROTATES:
+        lower_rotate(function, ins)
     elif op in SHIFTS:
         lower_shift(function, ins)
     elif op == 'imul':

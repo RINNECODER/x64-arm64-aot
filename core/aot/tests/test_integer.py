@@ -100,6 +100,55 @@ class IntegerTests(unittest.TestCase):
             return output[0], output[1], {name: output[2] >> index & 1 for index, name in enumerate(FLAG_ORDER)}
         return run
 
+    def test_immediate_rotates_values_flags_and_partial_registers(self):
+        randoms = random.Random(121026)
+        for width, prefix, opcode in ((8, '', 'c0'), (16, '66', 'c1'), (32, '', 'c1'), (64, '48', 'c1')):
+            for right in (False, True):
+                for count in (0, 1, width - 1, width, width + 1, 255):
+                    run = self.native(prefix + opcode + ('c8' if right else 'c0') + f'{count:02x}')
+                    masked = count & (63 if width == 64 else 31)
+                    shift = masked % width
+                    for source in [0, 1, MASK64, 1 << (width - 1)] + [randoms.getrandbits(64) for _ in range(16)]:
+                        value = source & ((1 << width) - 1)
+                        bits = [(value >> i) & 1 for i in range(width)]
+                        expected = sum(bits[(i + shift if right else i - shift) % width] << i for i in range(width))
+                        for old in (0, 31):
+                            result, _, flags = run(source, flags=old)
+                            self.assertEqual(result, merge_register(source, expected, width))
+                            for name in ('zf', 'sf', 'pf'):
+                                self.assertEqual(flags[name], int(bool(old)))
+                            if masked:
+                                carry = (expected >> (width - 1) if right else expected) & 1
+                                self.assertEqual(flags['cf'], carry)
+                                if masked == 1:
+                                    other = (expected >> (width - 2)) & 1 if right else carry
+                                    self.assertEqual(flags['of'], (expected >> (width - 1)) ^ other)
+                            else:
+                                self.assertEqual(flags['cf'], int(bool(old)))
+                                self.assertEqual(flags['of'], int(bool(old)))
+
+    def test_rotate_undefined_overflow_and_dynamic_count_reject(self):
+        ins = self.decode('66c1c008')
+        harness = Harness(ins)
+        state = harness.states[ins.address]
+        integer.analyze(harness, ins, state)
+        self.assertNotIn('of', state['flags'])
+        ins = self.decode('48d3c0')
+        harness = Harness(ins)
+        with self.assertRaisesRegex(Rejected, 'immediate count'):
+            integer.analyze(harness, ins, harness.states[ins.address])
+
+    def test_byte_swap_width_and_flags(self):
+        randoms = random.Random(34098)
+        for width, code in ((32, '0fc8'), (64, '480fc8')):
+            run = self.native(code)
+            for value in [0, 1, MASK64, 1 << 63] + [randoms.getrandbits(64) for _ in range(256)]:
+                for flags in (0, 31):
+                    result, _, actual_flags = run(value, flags=flags)
+                    expected = int.from_bytes((value & ((1 << width) - 1)).to_bytes(width // 8, 'little'), 'big')
+                    self.assertEqual(result, expected)
+                    self.assertEqual(actual_flags, {name: int(bool(flags)) for name in FLAG_ORDER})
+
     def test_reset_lowest_set_bit(self):
         randoms = random.Random(6649)
         for width, code in ((32, 'c4e278f3ce'), (64, 'c4e2f8f3ce')):

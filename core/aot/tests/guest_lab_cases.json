@@ -1,0 +1,5667 @@
+[
+ {
+  "asm": [
+   "mov rbp, r14"
+  ],
+  "flags": 2261
+ },
+ {
+  "asm": [
+   "sub r14, 120"
+  ],
+  "flags": 2261
+ },
+ {
+  "asm": [
+   "mov dword ptr [rsi + 128], edx"
+  ],
+  "flags": 2261,
+  "pointers": {
+   "rsi": 128
+  }
+ },
+ {
+  "asm": [
+   "test esi, esi"
+  ],
+  "flags": 2245
+ },
+ {
+  "asm": [
+   "cmp esi, 2"
+  ],
+  "flags": 2261
+ },
+ {
+  "asm": [
+   "cmp esi, 1"
+  ],
+  "flags": 2261
+ },
+ {
+  "asm": [
+   "test r9, r9"
+  ],
+  "flags": 2245
+ },
+ {
+  "asm": [
+   "movzx ecx, byte ptr [rsi + 128]"
+  ],
+  "flags": 2261,
+  "pointers": {
+   "rsi": 128
+  }
+ },
+ {
+  "asm": [
+   "mov rax, -20"
+  ],
+  "flags": 2261
+ },
+ {
+  "asm": [
+   "cmp ecx, edx"
+  ],
+  "flags": 2261
+ },
+ {
+  "asm": [
+   "mov dword ptr [rsi + 128], 0"
+  ],
+  "flags": 2261,
+  "pointers": {
+   "rsi": 128
+  }
+ },
+ {
+  "asm": [
+   "mov word ptr [rsi + 128], 0"
+  ],
+  "flags": 2261,
+  "pointers": {
+   "rsi": 128
+  }
+ },
+ {
+  "asm": [
+   "mov byte ptr [rsi + 128], cl"
+  ],
+  "flags": 2261,
+  "pointers": {
+   "rsi": 128
+  }
+ },
+ {
+  "asm": [
+   "mov byte ptr [rsi + 128], 0"
+  ],
+  "flags": 2261,
+  "pointers": {
+   "rsi": 128
+  }
+ },
+ {
+  "asm": [
+   "mov eax, 1"
+  ],
+  "flags": 2261
+ },
+ {
+  "asm": [
+   "add r14, 120"
+  ],
+  "flags": 2261
+ },
+ {
+  "asm": [
+   "mov r14d, ecx"
+  ],
+  "flags": 2261
+ },
+ {
+  "asm": [
+   "lea rdi, [rbp + -144]"
+  ],
+  "flags": 2261
+ },
+ {
+  "asm": [
+   "cmp r14, -120"
+  ],
+  "flags": 2261
+ },
+ {
+  "asm": [
+   "mov ecx, dword ptr [rsi + 128]"
+  ],
+  "flags": 2261,
+  "pointers": {
+   "rsi": 128
+  }
+ },
+ {
+  "asm": [
+   "xor ecx, ecx"
+  ],
+  "flags": 2245
+ },
+ {
+  "asm": [
+   "cmp dword ptr [rsi + 128], 0"
+  ],
+  "flags": 2261,
+  "pointers": {
+   "rsi": 128
+  }
+ },
+ {
+  "asm": [
+   "cmovne rax, rcx"
+  ],
+  "flags": 2261
+ },
+ {
+  "asm": [
+   "mov rsi, qword ptr [rdi + 128]"
+  ],
+  "flags": 2261,
+  "pointers": {
+   "rdi": 128
+  }
+ },
+ {
+  "asm": [
+   "shl r9d, cl"
+  ],
+  "flags": 197
+ },
+ {
+  "asm": [
+   "lea eax, [rdx + 1]"
+  ],
+  "flags": 2261
+ },
+ {
+  "asm": [
+   "mov ebx, 32768"
+  ],
+  "flags": 2261
+ },
+ {
+  "asm": [
+   "shr ebx, 16"
+  ],
+  "flags": 197
+ },
+ {
+  "asm": [
+   "mov qword ptr [rsi + 128], r12"
+  ],
+  "flags": 2261,
+  "pointers": {
+   "rsi": 128
+  }
+ },
+ {
+  "asm": [
+   "and r12d, 510"
+  ],
+  "flags": 2245
+ },
+ {
+  "asm": [
+   "mov dx, 1"
+  ],
+  "flags": 2261
+ },
+ {
+  "asm": [
+   "movsx r13d, word ptr [rsi + 128]"
+  ],
+  "flags": 2261,
+  "pointers": {
+   "rsi": 128
+  }
+ },
+ {
+  "asm": [
+   "cmovle edx, r14d"
+  ],
+  "flags": 2261
+ },
+ {
+  "asm": [
+   "mov word ptr [rsi + 128], r13w"
+  ],
+  "flags": 2261,
+  "pointers": {
+   "rsi": 128
+  }
+ },
+ {
+  "asm": [
+   "cmp r12, r11"
+  ],
+  "flags": 2261
+ },
+ {
+  "asm": [
+   "test byte ptr [rsi + 128], 1"
+  ],
+  "flags": 2245,
+  "pointers": {
+   "rsi": 128
+  }
+ },
+ {
+  "asm": [
+   "shr r11d, 1"
+  ],
+  "flags": 2245
+ },
+ {
+  "asm": [
+   "add edx, r11d"
+  ],
+  "flags": 2261
+ },
+ {
+  "asm": [
+   "add edx, 3"
+  ],
+  "flags": 2261
+ },
+ {
+  "asm": [
+   "adc eax, 0"
+  ],
+  "flags": 2261
+ },
+ {
+  "asm": [
+   "cmp r14w, 1"
+  ],
+  "flags": 2261
+ },
+ {
+  "asm": [
+   "mov byte ptr [rsi + 128], r11b"
+  ],
+  "flags": 2261,
+  "pointers": {
+   "rsi": 128
+  }
+ },
+ {
+  "asm": [
+   "and ebx, r10d"
+  ],
+  "flags": 2245
+ },
+ {
+  "asm": [
+   "test r14b, 1"
+  ],
+  "flags": 2245
+ },
+ {
+  "asm": [
+   "add r11, 1"
+  ],
+  "flags": 2261
+ },
+ {
+  "asm": [
+   "movzx r10d, word ptr [rsi + 128]"
+  ],
+  "flags": 2261,
+  "pointers": {
+   "rsi": 128
+  }
+ },
+ {
+  "asm": [
+   "bsr r11d, r10d"
+  ],
+  "flags": 64
+ },
+ {
+  "asm": [
+   "sub ecx, r11d"
+  ],
+  "flags": 2261
+ },
+ {
+  "asm": [
+   "mov sil, 1"
+  ],
+  "flags": 2261
+ },
+ {
+  "asm": [
+   "cmp r10d, dword ptr [rsi + 128]"
+  ],
+  "flags": 2261,
+  "pointers": {
+   "rsi": 128
+  }
+ },
+ {
+  "asm": [
+   "movsx edi, cx"
+  ],
+  "flags": 2261
+ },
+ {
+  "asm": [
+   "neg si"
+  ],
+  "flags": 2261
+ },
+ {
+  "asm": [
+   "cmovs si, ax"
+  ],
+  "flags": 2261
+ },
+ {
+  "asm": [
+   "test ax, ax"
+  ],
+  "flags": 2245
+ },
+ {
+  "asm": [
+   "setne sil"
+  ],
+  "flags": 2261
+ },
+ {
+  "asm": [
+   "cmp rdx, qword ptr [rsi + 128]"
+  ],
+  "flags": 2261,
+  "pointers": {
+   "rsi": 128
+  }
+ },
+ {
+  "asm": [
+   "seta dil"
+  ],
+  "flags": 2261
+ },
+ {
+  "asm": [
+   "sar eax, 3"
+  ],
+  "flags": 197
+ },
+ {
+  "asm": [
+   "movsxd rbx, eax"
+  ],
+  "flags": 2261
+ },
+ {
+  "asm": [
+   "add rbx, rdx"
+  ],
+  "flags": 2261
+ },
+ {
+  "asm": [
+   "test dil, r8b"
+  ],
+  "flags": 2245
+ },
+ {
+  "asm": [
+   "cmove r14d, r9d"
+  ],
+  "flags": 2261
+ },
+ {
+  "asm": [
+   "shr r14d, cl"
+  ],
+  "flags": 197
+ },
+ {
+  "asm": [
+   "sub rbx, rdx"
+  ],
+  "flags": 2261
+ },
+ {
+  "asm": [
+   "cmovbe rax, rbx"
+  ],
+  "flags": 2261
+ },
+ {
+  "asm": [
+   "sar r12d, 1"
+  ],
+  "flags": 2245
+ },
+ {
+  "asm": [
+   "cmovl ecx, eax"
+  ],
+  "flags": 2261
+ },
+ {
+  "asm": [
+   "cmp r14w, -1"
+  ],
+  "flags": 2261
+ },
+ {
+  "asm": [
+   "not r10d"
+  ],
+  "flags": 2261
+ },
+ {
+  "asm": [
+   "cdqe"
+  ],
+  "flags": 2261
+ },
+ {
+  "asm": [
+   "neg r8d"
+  ],
+  "flags": 2261
+ },
+ {
+  "asm": [
+   "setb r11b"
+  ],
+  "flags": 2261
+ },
+ {
+  "asm": [
+   "cmovae r12d, r14d"
+  ],
+  "flags": 2261
+ },
+ {
+  "asm": [
+   "shl r12d, 3"
+  ],
+  "flags": 197
+ },
+ {
+  "asm": [
+   "shl r10, cl"
+  ],
+  "flags": 197
+ },
+ {
+  "asm": [
+   "shr r10, cl"
+  ],
+  "flags": 197
+ },
+ {
+  "asm": [
+   "add ecx, dword ptr [rsi + 128]"
+  ],
+  "flags": 2261,
+  "pointers": {
+   "rsi": 128
+  }
+ },
+ {
+  "asm": [
+   "cmp byte ptr [rsi + 128], 1"
+  ],
+  "flags": 2261,
+  "pointers": {
+   "rsi": 128
+  }
+ },
+ {
+  "asm": [
+   "cmovb eax, ecx"
+  ],
+  "flags": 2261
+ },
+ {
+  "asm": [
+   "sete al"
+  ],
+  "flags": 2261
+ },
+ {
+  "asm": [
+   "add eax, 1"
+  ],
+  "flags": 2261
+ },
+ {
+  "asm": [
+   "movsxd rdx, dword ptr [rsi + 128]"
+  ],
+  "flags": 2261,
+  "pointers": {
+   "rsi": 128
+  }
+ },
+ {
+  "asm": [
+   "xor ecx, 31"
+  ],
+  "flags": 2245
+ },
+ {
+  "asm": [
+   "xorps xmm0, xmm0"
+  ],
+  "flags": 2261
+ },
+ {
+  "asm": [
+   "movups xmmword ptr [rsi + 128], xmm0"
+  ],
+  "flags": 2261,
+  "pointers": {
+   "rsi": 128
+  }
+ },
+ {
+  "asm": [
+   "shl rdx, 32"
+  ],
+  "flags": 197
+ },
+ {
+  "asm": [
+   "or rcx, rdx"
+  ],
+  "flags": 2245
+ },
+ {
+  "asm": [
+   "cmovb r14, r12"
+  ],
+  "flags": 2261
+ },
+ {
+  "asm": [
+   "add rsi, qword ptr [rdi + 128]"
+  ],
+  "flags": 2261,
+  "pointers": {
+   "rdi": 128
+  }
+ },
+ {
+  "asm": [
+   "sub rcx, qword ptr [rsi + 128]"
+  ],
+  "flags": 2261,
+  "pointers": {
+   "rsi": 128
+  }
+ },
+ {
+  "asm": [
+   "mov qword ptr [rsi + 128], 0"
+  ],
+  "flags": 2261,
+  "pointers": {
+   "rsi": 128
+  }
+ },
+ {
+  "asm": [
+   "cmp qword ptr [rsi + 128], r14"
+  ],
+  "flags": 2261,
+  "pointers": {
+   "rsi": 128
+  }
+ },
+ {
+  "asm": [
+   "cmp dword ptr [rsi + 128], edx"
+  ],
+  "flags": 2261,
+  "pointers": {
+   "rsi": 128
+  }
+ },
+ {
+  "asm": [
+   "rol cx, 8"
+  ],
+  "flags": 1
+ },
+ {
+  "asm": [
+   "movzx ebx, cx"
+  ],
+  "flags": 2261
+ },
+ {
+  "asm": [
+   "shr rcx, 11"
+  ],
+  "flags": 197
+ },
+ {
+  "asm": [
+   "or ebx, r14d"
+  ],
+  "flags": 2245
+ },
+ {
+  "asm": [
+   "mov dword ptr [rsi + 128], 1"
+  ],
+  "flags": 2261,
+  "pointers": {
+   "rsi": 128
+  }
+ },
+ {
+  "asm": [
+   "cmp al, 64"
+  ],
+  "flags": 2261
+ },
+ {
+  "asm": [
+   "and al, dl"
+  ],
+  "flags": 2245
+ },
+ {
+  "asm": [
+   "movzx eax, al"
+  ],
+  "flags": 2261
+ },
+ {
+  "asm": [
+   "movabs rax, -4417276706812531889"
+  ],
+  "flags": 2261
+ },
+ {
+  "asm": [
+   "rol rbx, 1"
+  ],
+  "flags": 2049
+ },
+ {
+  "asm": [
+   "rol r14, 7"
+  ],
+  "flags": 1
+ },
+ {
+  "asm": [
+   "imul r11, rax"
+  ],
+  "flags": 2049
+ },
+ {
+  "asm": [
+   "xor r11, r12"
+  ],
+  "flags": 2245
+ },
+ {
+  "asm": [
+   "test r9b, 8"
+  ],
+  "flags": 2245
+ },
+ {
+  "asm": [
+   "and r10, 3"
+  ],
+  "flags": 2245
+ },
+ {
+  "asm": [
+   "add qword ptr [rsi + 128], rdx"
+  ],
+  "flags": 2261,
+  "pointers": {
+   "rsi": 128
+  }
+ },
+ {
+  "asm": [
+   "add dword ptr [rsi + 128], ebx"
+  ],
+  "flags": 2261,
+  "pointers": {
+   "rsi": 128
+  }
+ },
+ {
+  "asm": [
+   "sub eax, dword ptr [rsi + 128]"
+  ],
+  "flags": 2261,
+  "pointers": {
+   "rsi": 128
+  }
+ },
+ {
+  "asm": [
+   "movq xmm0, qword ptr [rsi + 128]"
+  ],
+  "flags": 2261,
+  "pointers": {
+   "rsi": 128
+  }
+ },
+ {
+  "asm": [
+   "pxor xmm1, xmm1"
+  ],
+  "flags": 2261
+ },
+ {
+  "asm": [
+   "punpckldq xmm0, xmm1"
+  ],
+  "flags": 2261
+ },
+ {
+  "asm": [
+   "movdqu xmmword ptr [rsi + 128], xmm0"
+  ],
+  "flags": 2261,
+  "pointers": {
+   "rsi": 128
+  }
+ },
+ {
+  "asm": [
+   "shr rsi, 1"
+  ],
+  "flags": 2245
+ },
+ {
+  "asm": [
+   "mov cl, 63"
+  ],
+  "flags": 2261
+ },
+ {
+  "asm": [
+   "sub cl, r9b"
+  ],
+  "flags": 2261
+ },
+ {
+  "asm": [
+   "mov dl, 63"
+  ],
+  "flags": 2261
+ },
+ {
+  "asm": [
+   "sub dl, sil"
+  ],
+  "flags": 2261
+ },
+ {
+  "asm": [
+   "sub ecx, 1"
+  ],
+  "flags": 2261
+ },
+ {
+  "asm": [
+   "movdqu xmm0, xmmword ptr [rsi + 128]"
+  ],
+  "flags": 2261,
+  "pointers": {
+   "rsi": 128
+  }
+ },
+ {
+  "asm": [
+   "cmova rcx, rax"
+  ],
+  "flags": 2261
+ },
+ {
+  "asm": [
+   "not rdi"
+  ],
+  "flags": 2261
+ },
+ {
+  "asm": [
+   "and r8, rax"
+  ],
+  "flags": 2245
+ },
+ {
+  "asm": [
+   "neg rdx"
+  ],
+  "flags": 2261
+ },
+ {
+  "asm": [
+   "cmova r11, qword ptr [rsi + 128]"
+  ],
+  "flags": 2261,
+  "pointers": {
+   "rsi": 128
+  }
+ },
+ {
+  "asm": [
+   "cmp qword ptr [rsi + 128], 32"
+  ],
+  "flags": 2261,
+  "pointers": {
+   "rsi": 128
+  }
+ },
+ {
+  "asm": [
+   "cmovae rcx, rbx"
+  ],
+  "flags": 2261
+ },
+ {
+  "asm": [
+   "cmp rcx, 1"
+  ],
+  "flags": 2261
+ },
+ {
+  "asm": [
+   "pshufd xmm0, xmm0, 232"
+  ],
+  "flags": 2261
+ },
+ {
+  "asm": [
+   "movq qword ptr [rsi + 128], xmm0"
+  ],
+  "flags": 2261,
+  "pointers": {
+   "rsi": 128
+  }
+ },
+ {
+  "asm": [
+   "sub r10b, cl"
+  ],
+  "flags": 2261
+ },
+ {
+  "asm": [
+   "movd xmm0, edi"
+  ],
+  "flags": 2261
+ },
+ {
+  "asm": [
+   "punpcklbw xmm0, xmm0"
+  ],
+  "flags": 2261
+ },
+ {
+  "asm": [
+   "pshuflw xmm1, xmm0, 0"
+  ],
+  "flags": 2261
+ },
+ {
+  "asm": [
+   "add dword ptr [rsi + 128], 1"
+  ],
+  "flags": 2261,
+  "pointers": {
+   "rsi": 128
+  }
+ },
+ {
+  "asm": [
+   "or cl, dl"
+  ],
+  "flags": 2245
+ },
+ {
+  "asm": [
+   "test cl, 1"
+  ],
+  "flags": 2245
+ },
+ {
+  "asm": [
+   "shr r14b, 4"
+  ],
+  "flags": 197
+ },
+ {
+  "asm": [
+   "and r14b, 15"
+  ],
+  "flags": 2245
+ },
+ {
+  "asm": [
+   "movdqa xmm0, xmmword ptr [rsi + 128]"
+  ],
+  "flags": 2261,
+  "pointers": {
+   "rsi": 128
+  }
+ },
+ {
+  "asm": [
+   "movdqa xmm3, xmm1"
+  ],
+  "flags": 2261
+ },
+ {
+  "asm": [
+   "psrlw xmm3, 4"
+  ],
+  "flags": 2261
+ },
+ {
+  "asm": [
+   "pand xmm3, xmm0"
+  ],
+  "flags": 2261
+ },
+ {
+  "asm": [
+   "cmp word ptr [rsi + 128], 0"
+  ],
+  "flags": 2261,
+  "pointers": {
+   "rsi": 128
+  }
+ },
+ {
+  "asm": [
+   "neg cl"
+  ],
+  "flags": 2261
+ },
+ {
+  "asm": [
+   "setae al"
+  ],
+  "flags": 2261
+ },
+ {
+  "asm": [
+   "or dl, al"
+  ],
+  "flags": 2245
+ },
+ {
+  "asm": [
+   "imul r9d, edx"
+  ],
+  "flags": 2049
+ },
+ {
+  "asm": [
+   "imul edx, dword ptr [rsi + 128]"
+  ],
+  "flags": 2049,
+  "pointers": {
+   "rsi": 128
+  }
+ },
+ {
+  "asm": [
+   "shr dword ptr [rsi + 128], 16"
+  ],
+  "flags": 197,
+  "pointers": {
+   "rsi": 128
+  }
+ },
+ {
+  "asm": [
+   "setb cl"
+  ],
+  "flags": 2261
+ },
+ {
+  "asm": [
+   "sete cl"
+  ],
+  "flags": 2261
+ },
+ {
+  "asm": [
+   "or ecx, dword ptr [rsi + 128]"
+  ],
+  "flags": 2245,
+  "pointers": {
+   "rsi": 128
+  }
+ },
+ {
+  "asm": [
+   "sub qword ptr [rsi + 128], r14"
+  ],
+  "flags": 2261,
+  "pointers": {
+   "rsi": 128
+  }
+ },
+ {
+  "asm": [
+   "movaps xmmword ptr [rsi + 128], xmm0"
+  ],
+  "flags": 2261,
+  "pointers": {
+   "rsi": 128
+  }
+ },
+ {
+  "asm": [
+   "movss xmm0, xmm1"
+  ],
+  "flags": 2261,
+  "vectors": "float"
+ },
+ {
+  "asm": [
+   "psrld xmm1, xmm0"
+  ],
+  "flags": 2261
+ },
+ {
+  "asm": [
+   "movaps xmm1, xmmword ptr [rsi + 128]"
+  ],
+  "flags": 2261,
+  "pointers": {
+   "rsi": 128
+  }
+ },
+ {
+  "asm": [
+   "movdqa xmmword ptr [rsi + 128], xmm0"
+  ],
+  "flags": 2261,
+  "pointers": {
+   "rsi": 128
+  }
+ },
+ {
+  "asm": [
+   "mov byte ptr [rsi + 128], 1"
+  ],
+  "flags": 2261,
+  "pointers": {
+   "rsi": 128
+  }
+ },
+ {
+  "asm": [
+   "cmovge eax, esi"
+  ],
+  "flags": 2261
+ },
+ {
+  "asm": [
+   "movups xmm1, xmmword ptr [rsi + 128]"
+  ],
+  "flags": 2261,
+  "pointers": {
+   "rsi": 128
+  }
+ },
+ {
+  "asm": [
+   "cmova r13d, r9d"
+  ],
+  "flags": 2261
+ },
+ {
+  "asm": [
+   "movzx r8d, cl"
+  ],
+  "flags": 2261
+ },
+ {
+  "asm": [
+   "cmp cl, 64"
+  ],
+  "flags": 2261
+ },
+ {
+  "asm": [
+   "test cl, 8"
+  ],
+  "flags": 2245
+ },
+ {
+  "asm": [
+   "cmovne esi, edx"
+  ],
+  "flags": 2261
+ },
+ {
+  "asm": [
+   "and r8d, 1"
+  ],
+  "flags": 2245
+ },
+ {
+  "asm": [
+   "setbe al"
+  ],
+  "flags": 2261
+ },
+ {
+  "asm": [
+   "setne cl"
+  ],
+  "flags": 2261
+ },
+ {
+  "asm": [
+   "and cl, al"
+  ],
+  "flags": 2245
+ },
+ {
+  "asm": [
+   "cmp cl, 1"
+  ],
+  "flags": 2261
+ },
+ {
+  "asm": [
+   "test cl, al"
+  ],
+  "flags": 2245
+ },
+ {
+  "asm": [
+   "cmp byte ptr [rsi + 128], 0"
+  ],
+  "flags": 2261,
+  "pointers": {
+   "rsi": 128
+  }
+ },
+ {
+  "asm": [
+   "mov word ptr [rsi + 128], 1"
+  ],
+  "flags": 2261,
+  "pointers": {
+   "rsi": 128
+  }
+ },
+ {
+  "asm": [
+   "mov qword ptr [rsi + 128], 1"
+  ],
+  "flags": 2261,
+  "pointers": {
+   "rsi": 128
+  }
+ },
+ {
+  "asm": [
+   "cmove rcx, r10"
+  ],
+  "flags": 2261
+ },
+ {
+  "asm": [
+   "add sil, 1"
+  ],
+  "flags": 2261
+ },
+ {
+  "asm": [
+   "add qword ptr [rsi + 128], 20"
+  ],
+  "flags": 2261,
+  "pointers": {
+   "rsi": 128
+  }
+ },
+ {
+  "asm": [
+   "cmovae rsi, qword ptr [rdi + 128]"
+  ],
+  "flags": 2261,
+  "pointers": {
+   "rdi": 128
+  }
+ },
+ {
+  "asm": [
+   "or bl, cl"
+  ],
+  "flags": 2245
+ },
+ {
+  "asm": [
+   "cmove r9, qword ptr [rsi + 128]"
+  ],
+  "flags": 2261,
+  "pointers": {
+   "rsi": 128
+  }
+ },
+ {
+  "asm": [
+   "neg r10b"
+  ],
+  "flags": 2261
+ },
+ {
+  "asm": [
+   "movq xmm1, r14"
+  ],
+  "flags": 2261
+ },
+ {
+  "asm": [
+   "movapd xmm3, xmmword ptr [rsi + 128]"
+  ],
+  "flags": 2261,
+  "pointers": {
+   "rsi": 128
+  },
+  "vectors": "double"
+ },
+ {
+  "asm": [
+   "subpd xmm1, xmm3"
+  ],
+  "flags": 2261,
+  "vectors": "double"
+ },
+ {
+  "asm": [
+   "movapd xmm0, xmm1"
+  ],
+  "flags": 2261,
+  "vectors": "double"
+ },
+ {
+  "asm": [
+   "unpckhpd xmm0, xmm1"
+  ],
+  "flags": 2261,
+  "vectors": "double"
+ },
+ {
+  "asm": [
+   "addsd xmm0, xmm1"
+  ],
+  "flags": 2261,
+  "vectors": "double"
+ },
+ {
+  "asm": [
+   "movsd xmm1, qword ptr [rsi + 128]"
+  ],
+  "flags": 2261,
+  "pointers": {
+   "rsi": 128
+  },
+  "vectors": "double"
+ },
+ {
+  "asm": [
+   "mulsd xmm1, xmm0"
+  ],
+  "flags": 2261,
+  "vectors": "double"
+ },
+ {
+  "asm": [
+   "divsd xmm1, xmm5"
+  ],
+  "flags": 2261,
+  "vectors": "double"
+ },
+ {
+  "asm": [
+   "imul rcx, qword ptr [rsi + 128], 1000000000"
+  ],
+  "flags": 2049,
+  "pointers": {
+   "rsi": 128
+  }
+ },
+ {
+  "asm": [
+   "add sil, 208"
+  ],
+  "flags": 2261
+ },
+ {
+  "asm": [
+   "test cl, cl"
+  ],
+  "flags": 2245
+ },
+ {
+  "asm": [
+   "xorpd xmm0, xmm0"
+  ],
+  "flags": 2261,
+  "vectors": "double"
+ },
+ {
+  "asm": [
+   "movupd xmmword ptr [rsi + 128], xmm0"
+  ],
+  "flags": 2261,
+  "pointers": {
+   "rsi": 128
+  },
+  "vectors": "double"
+ },
+ {
+  "asm": [
+   "mulsd xmm0, qword ptr [rsi + 128]"
+  ],
+  "flags": 2261,
+  "pointers": {
+   "rsi": 128
+  },
+  "vectors": "double"
+ },
+ {
+  "asm": [
+   "cvttsd2si r10, xmm0"
+  ],
+  "flags": 2261,
+  "vectors": "double"
+ },
+ {
+  "asm": [
+   "cvtsi2sd xmm0, rax"
+  ],
+  "flags": 2261,
+  "vectors": "double"
+ },
+ {
+  "asm": [
+   "divsd xmm0, qword ptr [rsi + 128]"
+  ],
+  "flags": 2261,
+  "pointers": {
+   "rsi": 128
+  },
+  "vectors": "double"
+ },
+ {
+  "asm": [
+   "movsd qword ptr [rsi + 128], xmm0"
+  ],
+  "flags": 2261,
+  "pointers": {
+   "rsi": 128
+  },
+  "vectors": "double"
+ },
+ {
+  "asm": [
+   "cmp dword ptr [rsi + 128], 1"
+  ],
+  "flags": 2261,
+  "pointers": {
+   "rsi": 128
+  }
+ },
+ {
+  "asm": [
+   "and al, cl"
+  ],
+  "flags": 2245
+ },
+ {
+  "asm": [
+   "cmove r13d, dword ptr [rsi + 128]"
+  ],
+  "flags": 2261,
+  "pointers": {
+   "rsi": 128
+  }
+ },
+ {
+  "asm": [
+   "add dword ptr [rsi + 128], -1"
+  ],
+  "flags": 2261,
+  "pointers": {
+   "rsi": 128
+  }
+ },
+ {
+  "asm": [
+   "cmp qword ptr [rsi + 128], 1"
+  ],
+  "flags": 2261,
+  "pointers": {
+   "rsi": 128
+  }
+ },
+ {
+  "asm": [
+   "cmovg r12d, ebx"
+  ],
+  "flags": 2261
+ },
+ {
+  "asm": [
+   "setge dl"
+  ],
+  "flags": 2261
+ },
+ {
+  "asm": [
+   "cmp dl, 1"
+  ],
+  "flags": 2261
+ },
+ {
+  "asm": [
+   "pcmpeqd xmm0, xmm3"
+  ],
+  "flags": 2261
+ },
+ {
+  "asm": [
+   "pandn xmm2, xmm1"
+  ],
+  "flags": 2261
+ },
+ {
+  "asm": [
+   "pand xmm0, xmmword ptr [rsi + 128]"
+  ],
+  "flags": 2261,
+  "pointers": {
+   "rsi": 128
+  }
+ },
+ {
+  "asm": [
+   "por xmm0, xmm2"
+  ],
+  "flags": 2261
+ },
+ {
+  "asm": [
+   "movd edx, xmm0"
+  ],
+  "flags": 2261
+ },
+ {
+  "asm": [
+   "movd dword ptr [rsi + 128], xmm0"
+  ],
+  "flags": 2261,
+  "pointers": {
+   "rsi": 128
+  }
+ },
+ {
+  "asm": [
+   "movapd xmmword ptr [rsi + 128], xmm0"
+  ],
+  "flags": 2261,
+  "pointers": {
+   "rsi": 128
+  },
+  "vectors": "double"
+ },
+ {
+  "asm": [
+   "add qword ptr [rsi + 128], 1"
+  ],
+  "flags": 2261,
+  "pointers": {
+   "rsi": 128
+  }
+ },
+ {
+  "asm": [
+   "imul esi, esi, 2654435761"
+  ],
+  "flags": 2049
+ },
+ {
+  "asm": [
+   "rol esi, 13"
+  ],
+  "flags": 1
+ },
+ {
+  "asm": [
+   "cmovge r12, rbx"
+  ],
+  "flags": 2261
+ },
+ {
+  "asm": [
+   "cmovl r13, rax"
+  ],
+  "flags": 2261
+ },
+ {
+  "asm": [
+   "movupd xmm0, xmmword ptr [rsi + 128]"
+  ],
+  "flags": 2261,
+  "pointers": {
+   "rsi": 128
+  },
+  "vectors": "double"
+ },
+ {
+  "asm": [
+   "cmovns rdx, rbx"
+  ],
+  "flags": 2261
+ },
+ {
+  "asm": [
+   "or r13, qword ptr [rsi + 128]"
+  ],
+  "flags": 2245,
+  "pointers": {
+   "rsi": 128
+  }
+ },
+ {
+  "asm": [
+   "punpcklqdq xmm3, xmm2"
+  ],
+  "flags": 2261
+ },
+ {
+  "asm": [
+   "movmskpd eax, xmm2"
+  ],
+  "flags": 2261,
+  "vectors": "double"
+ },
+ {
+  "asm": [
+   "imul rax, qword ptr [rsi + 128]"
+  ],
+  "flags": 2049,
+  "pointers": {
+   "rsi": 128
+  }
+ },
+ {
+  "asm": [
+   "mul rcx"
+  ],
+  "flags": 2049
+ },
+ {
+  "asm": [
+   "paddd xmm1, xmmword ptr [rsi + 128]"
+  ],
+  "flags": 2261,
+  "pointers": {
+   "rsi": 128
+  }
+ },
+ {
+  "asm": [
+   "paddd xmm0, xmm1"
+  ],
+  "flags": 2261
+ },
+ {
+  "asm": [
+   "paddq xmm0, xmm2"
+  ],
+  "flags": 2261
+ },
+ {
+  "asm": [
+   "movq rax, xmm0"
+  ],
+  "flags": 2261
+ },
+ {
+  "asm": [
+   "inc r12d"
+  ],
+  "flags": 2261
+ },
+ {
+  "asm": [
+   "cmovns ecx, eax"
+  ],
+  "flags": 2261
+ },
+ {
+  "asm": [
+   "cmovs r13d, eax"
+  ],
+  "flags": 2261
+ },
+ {
+  "asm": [
+   "setl r9b"
+  ],
+  "flags": 2261
+ },
+ {
+  "asm": [
+   "mov r12b, r9b"
+  ],
+  "flags": 2261
+ },
+ {
+  "asm": [
+   "psubd xmm5, xmm2"
+  ],
+  "flags": 2261
+ },
+ {
+  "asm": [
+   "packuswb xmm6, xmm5"
+  ],
+  "flags": 2261
+ },
+ {
+  "asm": [
+   "shl dl, 4"
+  ],
+  "flags": 197
+ },
+ {
+  "asm": [
+   "add dl, byte ptr [rsi + 128]"
+  ],
+  "flags": 2261,
+  "pointers": {
+   "rsi": 128
+  }
+ },
+ {
+  "asm": [
+   "pinsrw xmm1, eax, 2"
+  ],
+  "flags": 2261
+ },
+ {
+  "asm": [
+   "psllw xmm1, 4"
+  ],
+  "flags": 2261
+ },
+ {
+  "asm": [
+   "paddb xmm2, xmm1"
+  ],
+  "flags": 2261
+ },
+ {
+  "asm": [
+   "punpcklwd xmm3, xmm2"
+  ],
+  "flags": 2261
+ },
+ {
+  "asm": [
+   "or r10, 1"
+  ],
+  "flags": 2245
+ },
+ {
+  "asm": [
+   "and r10d, dword ptr [rsi + 128]"
+  ],
+  "flags": 2245,
+  "pointers": {
+   "rsi": 128
+  }
+ },
+ {
+  "asm": [
+   "bts r13, rsi"
+  ],
+  "flags": 1
+ },
+ {
+  "asm": [
+   "adc rcx, -1"
+  ],
+  "flags": 2261
+ },
+ {
+  "asm": [
+   "movsx r10, word ptr [rsi + 128]"
+  ],
+  "flags": 2261,
+  "pointers": {
+   "rsi": 128
+  }
+ },
+ {
+  "asm": [
+   "sbb ebx, ebx"
+  ],
+  "flags": 2261
+ },
+ {
+  "asm": [
+   "or ebx, 1"
+  ],
+  "flags": 2245
+ },
+ {
+  "asm": [
+   "test r12d, 65528"
+  ],
+  "flags": 2245
+ },
+ {
+  "asm": [
+   "cmp cx, r11w"
+  ],
+  "flags": 2261
+ },
+ {
+  "asm": [
+   "pcmpgtd xmm6, xmm5"
+  ],
+  "flags": 2261
+ },
+ {
+  "asm": [
+   "add word ptr [rsi + 128], 1"
+  ],
+  "flags": 2261,
+  "pointers": {
+   "rsi": 128
+  }
+ },
+ {
+  "asm": [
+   "add cx, word ptr [rsi + 128]"
+  ],
+  "flags": 2261,
+  "pointers": {
+   "rsi": 128
+  }
+ },
+ {
+  "asm": [
+   "sar rcx, 29"
+  ],
+  "flags": 197
+ },
+ {
+  "asm": [
+   "sar r10d, cl"
+  ],
+  "flags": 197
+ },
+ {
+  "asm": [
+   "add byte ptr [rsi + 128], 1"
+  ],
+  "flags": 2261,
+  "pointers": {
+   "rsi": 128
+  }
+ },
+ {
+  "asm": [
+   "add byte ptr [rsi + 128], 255"
+  ],
+  "flags": 2261,
+  "pointers": {
+   "rsi": 128
+  }
+ },
+ {
+  "asm": [
+   "sbb r13d, -1"
+  ],
+  "flags": 2261
+ },
+ {
+  "asm": [
+   "add cl, 1"
+  ],
+  "flags": 2261
+ },
+ {
+  "asm": [
+   "bsr r14d, dword ptr [rsi + 128]"
+  ],
+  "flags": 64,
+  "pointers": {
+   "rsi": 128
+  }
+ },
+ {
+  "asm": [
+   "xor r14b, 31"
+  ],
+  "flags": 2245
+ },
+ {
+  "asm": [
+   "tzcnt r8, rbx"
+  ],
+  "flags": 65
+ },
+ {
+  "asm": [
+   "cmp r11w, word ptr [rsi + 128]"
+  ],
+  "flags": 2261,
+  "pointers": {
+   "rsi": 128
+  }
+ },
+ {
+  "asm": [
+   "cmp r9b, byte ptr [rsi + 128]"
+  ],
+  "flags": 2261,
+  "pointers": {
+   "rsi": 128
+  }
+ },
+ {
+  "asm": [
+   "or al, 128"
+  ],
+  "flags": 2245
+ },
+ {
+  "asm": [
+   "and cl, 248"
+  ],
+  "flags": 2245
+ },
+ {
+  "asm": [
+   "sbb rax, -1"
+  ],
+  "flags": 2261
+ },
+ {
+  "asm": [
+   "shlx eax, r11d, eax"
+  ],
+  "flags": 2261
+ },
+ {
+  "asm": [
+   "shrx rax, rbx, r10"
+  ],
+  "flags": 2261
+ },
+ {
+  "asm": [
+   "shlx rdx, rdx, r9"
+  ],
+  "flags": 2261
+ },
+ {
+  "asm": [
+   "shrx esi, esi, edi"
+  ],
+  "flags": 2261
+ },
+ {
+  "asm": [
+   "setae cl"
+  ],
+  "flags": 2261
+ },
+ {
+  "asm": [
+   "adc r14d, 1"
+  ],
+  "flags": 2261
+ },
+ {
+  "asm": [
+   "movzx ecx, dh"
+  ],
+  "flags": 2261
+ },
+ {
+  "asm": [
+   "or ecx, 4"
+  ],
+  "flags": 2245
+ },
+ {
+  "asm": [
+   "cmp byte ptr [rsi + 128], cl"
+  ],
+  "flags": 2261,
+  "pointers": {
+   "rsi": 128
+  }
+ },
+ {
+  "asm": [
+   "shl cl, 3"
+  ],
+  "flags": 197
+ },
+ {
+  "asm": [
+   "or cl, 1"
+  ],
+  "flags": 2245
+ },
+ {
+  "asm": [
+   "cmovb rax, qword ptr [rsi + 128]"
+  ],
+  "flags": 2261,
+  "pointers": {
+   "rsi": 128
+  }
+ },
+ {
+  "asm": [
+   "setle sil"
+  ],
+  "flags": 2261
+ },
+ {
+  "asm": [
+   "imul r8d, dword ptr [rsi + 128], 2654435761"
+  ],
+  "flags": 2049,
+  "pointers": {
+   "rsi": 128
+  }
+ },
+ {
+  "asm": [
+   "cmovbe r11d, edi"
+  ],
+  "flags": 2261
+ },
+ {
+  "asm": [
+   "pmuludq xmm5, xmm3"
+  ],
+  "flags": 2261
+ },
+ {
+  "asm": [
+   "cwde"
+  ],
+  "flags": 2261
+ },
+ {
+  "asm": [
+   "movlps qword ptr [rsi + 128], xmm0"
+  ],
+  "flags": 2261,
+  "pointers": {
+   "rsi": 128
+  }
+ },
+ {
+  "asm": [
+   "mov cl, al"
+  ],
+  "flags": 2261
+ },
+ {
+  "asm": [
+   "test byte ptr [rsi + 128], 2"
+  ],
+  "flags": 2245,
+  "pointers": {
+   "rsi": 128
+  }
+ },
+ {
+  "asm": [
+   "sub dword ptr [rsi + 128], edx"
+  ],
+  "flags": 2261,
+  "pointers": {
+   "rsi": 128
+  }
+ },
+ {
+  "asm": [
+   "xor r13b, 1"
+  ],
+  "flags": 2245
+ },
+ {
+  "asm": [
+   "or cl, 128"
+  ],
+  "flags": 2245
+ },
+ {
+  "asm": [
+   "seta cl"
+  ],
+  "flags": 2261
+ },
+ {
+  "asm": [
+   "imul rax, rax, 954437177"
+  ],
+  "flags": 2049
+ },
+ {
+  "asm": [
+   "ror ecx, 1"
+  ],
+  "flags": 2049
+ },
+ {
+  "asm": [
+   "ror ecx, 2"
+  ],
+  "flags": 1
+ },
+ {
+  "asm": [
+   "rorx r9d, r9d, 1"
+  ],
+  "flags": 2261
+ },
+ {
+  "asm": [
+   "rorx r10d, r10d, 2"
+  ],
+  "flags": 2261
+ },
+ {
+  "asm": [
+   "cmovs r9, r8"
+  ],
+  "flags": 2261
+ },
+ {
+  "asm": [
+   "setg al"
+  ],
+  "flags": 2261
+ },
+ {
+  "asm": [
+   "psubq xmm4, xmm5"
+  ],
+  "flags": 2261
+ },
+ {
+  "asm": [
+   "psllq xmm4, 9"
+  ],
+  "flags": 2261
+ },
+ {
+  "asm": [
+   "psrad xmm5, 31"
+  ],
+  "flags": 2261
+ },
+ {
+  "asm": [
+   "psrlq xmm3, 32"
+  ],
+  "flags": 2261
+ },
+ {
+  "asm": [
+   "or rdx, 32768"
+  ],
+  "flags": 2245
+ },
+ {
+  "asm": [
+   "add cl, 176"
+  ],
+  "flags": 2261
+ },
+ {
+  "asm": [
+   "setl cl"
+  ],
+  "flags": 2261
+ },
+ {
+  "asm": [
+   "psrld xmm0, 8"
+  ],
+  "flags": 2261
+ },
+ {
+  "asm": [
+   "inc r13"
+  ],
+  "flags": 2261
+ },
+ {
+  "asm": [
+   "test r10b, cl"
+  ],
+  "flags": 2245
+ },
+ {
+  "asm": [
+   "cmp cl, byte ptr [rsi + 128]"
+  ],
+  "flags": 2261,
+  "pointers": {
+   "rsi": 128
+  }
+ },
+ {
+  "asm": [
+   "sete byte ptr [rsi + 128]"
+  ],
+  "flags": 2261,
+  "pointers": {
+   "rsi": 128
+  }
+ },
+ {
+  "asm": [
+   "mov cl, 1"
+  ],
+  "flags": 2261
+ },
+ {
+  "asm": [
+   "pcmpeqw xmm2, xmm0"
+  ],
+  "flags": 2261
+ },
+ {
+  "asm": [
+   "packsswb xmm3, xmm4"
+  ],
+  "flags": 2261
+ },
+ {
+  "asm": [
+   "pmovmskb ecx, xmm3"
+  ],
+  "flags": 2261
+ },
+ {
+  "asm": [
+   "movmskps edx, xmm1"
+  ],
+  "flags": 2261
+ },
+ {
+  "asm": [
+   "tzcnt ecx, eax"
+  ],
+  "flags": 65
+ },
+ {
+  "asm": [
+   "shrx r11d, dword ptr [rsi + 128], r10d"
+  ],
+  "flags": 2261,
+  "pointers": {
+   "rsi": 128
+  }
+ },
+ {
+  "asm": [
+   "lzcnt r9d, ecx"
+  ],
+  "flags": 65
+ },
+ {
+  "asm": [
+   "not r9b"
+  ],
+  "flags": 2261
+ },
+ {
+  "asm": [
+   "movd xmm2, dword ptr [rsi + 128]"
+  ],
+  "flags": 2261,
+  "pointers": {
+   "rsi": 128
+  }
+ },
+ {
+  "asm": [
+   "psubb xmm4, xmm2"
+  ],
+  "flags": 2261
+ },
+ {
+  "asm": [
+   "pcmpeqb xmm2, xmm1"
+  ],
+  "flags": 2261
+ },
+ {
+  "asm": [
+   "bzhi rbx, r12, rbx"
+  ],
+  "flags": 2241
+ },
+ {
+  "asm": [
+   "xor cl, al"
+  ],
+  "flags": 2245
+ },
+ {
+  "asm": [
+   "adc rcx, rdx"
+  ],
+  "flags": 2261
+ },
+ {
+  "asm": [
+   "pextrw ecx, xmm0, 4"
+  ],
+  "flags": 2261
+ },
+ {
+  "asm": [
+   "cmovle rdx, r13"
+  ],
+  "flags": 2261
+ },
+ {
+  "asm": [
+   "sbb rdi, rdi"
+  ],
+  "flags": 2261
+ },
+ {
+  "asm": [
+   "add word ptr [rsi + 128], -1"
+  ],
+  "flags": 2261,
+  "pointers": {
+   "rsi": 128
+  }
+ },
+ {
+  "asm": [
+   "ucomisd xmm0, qword ptr [rsi + 128]"
+  ],
+  "flags": 2261,
+  "pointers": {
+   "rsi": 128
+  },
+  "vectors": "double"
+ },
+ {
+  "asm": [
+   "ucomisd xmm0, xmm2"
+  ],
+  "flags": 2261,
+  "vectors": "double"
+ },
+ {
+  "asm": [
+   "cmpnlesd xmm2, xmm1"
+  ],
+  "flags": 2261,
+  "vectors": "double"
+ },
+ {
+  "asm": [
+   "andpd xmm0, xmm2"
+  ],
+  "flags": 2261,
+  "vectors": "double"
+ },
+ {
+  "asm": [
+   "andnpd xmm2, xmm1"
+  ],
+  "flags": 2261,
+  "vectors": "double"
+ },
+ {
+  "asm": [
+   "orpd xmm2, xmm0"
+  ],
+  "flags": 2261,
+  "vectors": "double"
+ },
+ {
+  "asm": [
+   "cvtsi2sd xmm0, qword ptr [rsi + 128]"
+  ],
+  "flags": 2261,
+  "pointers": {
+   "rsi": 128
+  },
+  "vectors": "double"
+ },
+ {
+  "asm": [
+   "addsd xmm0, qword ptr [rsi + 128]"
+  ],
+  "flags": 2261,
+  "pointers": {
+   "rsi": 128
+  },
+  "vectors": "double"
+ },
+ {
+  "asm": [
+   "unpcklps xmm1, xmmword ptr [rsi + 128]"
+  ],
+  "flags": 2261,
+  "pointers": {
+   "rsi": 128
+  }
+ },
+ {
+  "asm": [
+   "subpd xmm1, xmmword ptr [rsi + 128]"
+  ],
+  "flags": 2261,
+  "pointers": {
+   "rsi": 128
+  },
+  "vectors": "double"
+ },
+ {
+  "asm": [
+   "punpckldq xmm0, xmmword ptr [rsi + 128]"
+  ],
+  "flags": 2261,
+  "pointers": {
+   "rsi": 128
+  }
+ },
+ {
+  "asm": [
+   "setbe byte ptr [rsi + 128]"
+  ],
+  "flags": 2261,
+  "pointers": {
+   "rsi": 128
+  }
+ },
+ {
+  "asm": [
+   "cmp word ptr [rsi + 128], ax"
+  ],
+  "flags": 2261,
+  "pointers": {
+   "rsi": 128
+  }
+ },
+ {
+  "asm": [
+   "cmp byte ptr [rsi + 128], r8b"
+  ],
+  "flags": 2261,
+  "pointers": {
+   "rsi": 128
+  }
+ },
+ {
+  "asm": [
+   "cmovae eax, dword ptr [rsi + 128]"
+  ],
+  "flags": 2261,
+  "pointers": {
+   "rsi": 128
+  }
+ },
+ {
+  "asm": [
+   "cmp r14b, r11b"
+  ],
+  "flags": 2261
+ },
+ {
+  "asm": [
+   "sets al"
+  ],
+  "flags": 2261
+ },
+ {
+  "asm": [
+   "sub rcx, 1"
+  ],
+  "flags": 2261
+ },
+ {
+  "asm": [
+   "cdq"
+  ],
+  "flags": 2261
+ },
+ {
+  "asm": [
+   "setg cl"
+  ],
+  "flags": 2261
+ },
+ {
+  "asm": [
+   "not dword ptr [rsi + 128]"
+  ],
+  "flags": 2261,
+  "pointers": {
+   "rsi": 128
+  }
+ },
+ {
+  "asm": [
+   "cmovg rdi, rbx"
+  ],
+  "flags": 2261
+ },
+ {
+  "asm": [
+   "setb byte ptr [rsi + 128]"
+  ],
+  "flags": 2261,
+  "pointers": {
+   "rsi": 128
+  }
+ },
+ {
+  "asm": [
+   "cmp cl, r13b"
+  ],
+  "flags": 2261
+ },
+ {
+  "asm": [
+   "or dword ptr [rsi + 128], r13d"
+  ],
+  "flags": 2245,
+  "pointers": {
+   "rsi": 128
+  }
+ },
+ {
+  "asm": [
+   "and dword ptr [rsi + 128], eax"
+  ],
+  "flags": 2245,
+  "pointers": {
+   "rsi": 128
+  }
+ },
+ {
+  "asm": [
+   "adc rcx, qword ptr [rsi + 128]"
+  ],
+  "flags": 2261,
+  "pointers": {
+   "rsi": 128
+  }
+ },
+ {
+  "asm": [
+   "subsd xmm1, qword ptr [rsi + 128]"
+  ],
+  "flags": 2261,
+  "pointers": {
+   "rsi": 128
+  },
+  "vectors": "double"
+ },
+ {
+  "asm": [
+   "shr cl, 4"
+  ],
+  "flags": 197
+ },
+ {
+  "asm": [
+   "xor r12b, bl"
+  ],
+  "flags": 2245
+ },
+ {
+  "asm": [
+   "packssdw xmm6, xmm7"
+  ],
+  "flags": 2261
+ },
+ {
+  "asm": [
+   "shufps xmm1, xmm2, 221"
+  ],
+  "flags": 2261
+ },
+ {
+  "asm": [
+   "andps xmm0, xmm1"
+  ],
+  "flags": 2261
+ },
+ {
+  "asm": [
+   "unpcklps xmm0, xmm4"
+  ],
+  "flags": 2261
+ },
+ {
+  "asm": [
+   "minsd xmm2, xmm0"
+  ],
+  "flags": 2261,
+  "vectors": "double"
+ },
+ {
+  "asm": [
+   "xor dl, cl"
+  ],
+  "flags": 2245
+ },
+ {
+  "asm": [
+   "setge cl"
+  ],
+  "flags": 2261
+ },
+ {
+  "asm": [
+   "bsr rbx, r14"
+  ],
+  "flags": 64
+ },
+ {
+  "asm": [
+   "bzhi ebx, r10d, r9d"
+  ],
+  "flags": 2241
+ },
+ {
+  "asm": [
+   "pslld xmm3, 8"
+  ],
+  "flags": 2261
+ },
+ {
+  "asm": [
+   "test byte ptr [rsi + 128], al"
+  ],
+  "flags": 2245,
+  "pointers": {
+   "rsi": 128
+  }
+ },
+ {
+  "asm": [
+   "movss xmm0, dword ptr [rsi + 128]"
+  ],
+  "flags": 2261,
+  "pointers": {
+   "rsi": 128
+  },
+  "vectors": "float"
+ },
+ {
+  "asm": [
+   "add r14b, sil"
+  ],
+  "flags": 2261
+ },
+ {
+  "asm": [
+   "shlx rcx, qword ptr [rsi + 128], rdi"
+  ],
+  "flags": 2261,
+  "pointers": {
+   "rsi": 128
+  }
+ },
+ {
+  "asm": [
+   "andn rdx, rax, rdx"
+  ],
+  "flags": 2241
+ },
+ {
+  "asm": [
+   "setne byte ptr [rsi + 128]"
+  ],
+  "flags": 2261,
+  "pointers": {
+   "rsi": 128
+  }
+ },
+ {
+  "asm": [
+   "shrd r10d, eax, 22"
+  ],
+  "flags": 197
+ },
+ {
+  "asm": [
+   "paddq xmm0, xmmword ptr [rsi + 128]"
+  ],
+  "flags": 2261,
+  "pointers": {
+   "rsi": 128
+  }
+ },
+ {
+  "asm": [
+   "mov byte ptr [rsi + 128], ah"
+  ],
+  "flags": 2261,
+  "pointers": {
+   "rsi": 128
+  }
+ },
+ {
+  "asm": [
+   "bsf rbp, rbp"
+  ],
+  "flags": 64
+ },
+ {
+  "asm": [
+   "tzcnt r8, qword ptr [rsi + 128]"
+  ],
+  "flags": 65,
+  "pointers": {
+   "rsi": 128
+  }
+ },
+ {
+  "asm": [
+   "not cl"
+  ],
+  "flags": 2261
+ },
+ {
+  "asm": [
+   "mov al, cl"
+  ],
+  "flags": 2261
+ },
+ {
+  "asm": [
+   "and al, byte ptr [rsi + 128]"
+  ],
+  "flags": 2245,
+  "pointers": {
+   "rsi": 128
+  }
+ },
+ {
+  "asm": [
+   "addpd xmm2, xmm0"
+  ],
+  "flags": 2261,
+  "vectors": "double"
+ },
+ {
+  "asm": [
+   "unpcklpd xmm1, xmm2"
+  ],
+  "flags": 2261,
+  "vectors": "double"
+ },
+ {
+  "asm": [
+   "divpd xmm1, xmmword ptr [rsi + 128]"
+  ],
+  "flags": 2261,
+  "pointers": {
+   "rsi": 128
+  },
+  "vectors": "double"
+ },
+ {
+  "asm": [
+   "seta byte ptr [rsi + 128]"
+  ],
+  "flags": 2261,
+  "pointers": {
+   "rsi": 128
+  }
+ },
+ {
+  "asm": [
+   "or r13b, byte ptr [rsi + 128]"
+  ],
+  "flags": 2245,
+  "pointers": {
+   "rsi": 128
+  }
+ },
+ {
+  "asm": [
+   "xor rcx, 115"
+  ],
+  "flags": 2245
+ },
+ {
+  "asm": [
+   "and r9, qword ptr [rsi + 128]"
+  ],
+  "flags": 2245,
+  "pointers": {
+   "rsi": 128
+  }
+ },
+ {
+  "asm": [
+   "mulx r12, r12, r12"
+  ],
+  "flags": 2261
+ },
+ {
+  "asm": [
+   "xor ecx, dword ptr [rsi + 128]"
+  ],
+  "flags": 2245,
+  "pointers": {
+   "rsi": 128
+  }
+ },
+ {
+  "asm": [
+   "setbe cl"
+  ],
+  "flags": 2261
+ },
+ {
+  "asm": [
+   "sub eax, 3"
+  ],
+  "flags": 2261
+ },
+ {
+  "asm": [
+   "sub cl, byte ptr [rsi + 128]"
+  ],
+  "flags": 2261,
+  "pointers": {
+   "rsi": 128
+  }
+ },
+ {
+  "asm": [
+   "ror rbx, cl"
+  ],
+  "flags": 1
+ },
+ {
+  "asm": [
+   "shl qword ptr [rsi + 128], 2"
+  ],
+  "flags": 197,
+  "pointers": {
+   "rsi": 128
+  }
+ },
+ {
+  "asm": [
+   "xor r14, qword ptr [rsi + 128]"
+  ],
+  "flags": 2245,
+  "pointers": {
+   "rsi": 128
+  }
+ },
+ {
+  "asm": [
+   "ror ebx, cl"
+  ],
+  "flags": 1
+ },
+ {
+  "asm": [
+   "ror r8w, cl"
+  ],
+  "flags": 1
+ },
+ {
+  "asm": [
+   "xor r14d, 1"
+  ],
+  "flags": 2245
+ },
+ {
+  "asm": [
+   "pxor xmm0, xmmword ptr [rsi + 128]"
+  ],
+  "flags": 2261,
+  "pointers": {
+   "rsi": 128
+  }
+ },
+ {
+  "asm": [
+   "pcmpgtd xmm0, xmmword ptr [rsi + 128]"
+  ],
+  "flags": 2261,
+  "pointers": {
+   "rsi": 128
+  }
+ },
+ {
+  "asm": [
+   "bswap rax"
+  ],
+  "flags": 2261
+ },
+ {
+  "asm": [
+   "bswap eax"
+  ],
+  "flags": 2261
+ },
+ {
+  "asm": [
+   "pmuludq xmm0, xmmword ptr [rsi + 128]"
+  ],
+  "flags": 2261,
+  "pointers": {
+   "rsi": 128
+  }
+ },
+ {
+  "asm": [
+   "rol eax, 1"
+  ],
+  "flags": 2049
+ },
+ {
+  "asm": [
+   "add ax, r8w"
+  ],
+  "flags": 2261
+ },
+ {
+  "asm": [
+   "neg qword ptr [rsi + 128]"
+  ],
+  "flags": 2261,
+  "pointers": {
+   "rsi": 128
+  }
+ },
+ {
+  "asm": [
+   "or qword ptr [rsi + 128], rax"
+  ],
+  "flags": 2245,
+  "pointers": {
+   "rsi": 128
+  }
+ },
+ {
+  "asm": [
+   "sar qword ptr [rsi + 128], cl"
+  ],
+  "flags": 197,
+  "pointers": {
+   "rsi": 128
+  }
+ },
+ {
+  "asm": [
+   "shr qword ptr [rsi + 128], cl"
+  ],
+  "flags": 197,
+  "pointers": {
+   "rsi": 128
+  }
+ },
+ {
+  "asm": [
+   "shl qword ptr [rsi + 128], cl"
+  ],
+  "flags": 197,
+  "pointers": {
+   "rsi": 128
+  }
+ },
+ {
+  "asm": [
+   "not qword ptr [rsi + 128]"
+  ],
+  "flags": 2261,
+  "pointers": {
+   "rsi": 128
+  }
+ },
+ {
+  "asm": [
+   "cqo"
+  ],
+  "flags": 2261
+ },
+ {
+  "asm": [
+   "movsx rcx, byte ptr [rsi + 128]"
+  ],
+  "flags": 2261,
+  "pointers": {
+   "rsi": 128
+  }
+ },
+ {
+  "asm": [
+   "xor qword ptr [rsi + 128], rax"
+  ],
+  "flags": 2245,
+  "pointers": {
+   "rsi": 128
+  }
+ },
+ {
+  "asm": [
+   "and qword ptr [rsi + 128], rax"
+  ],
+  "flags": 2245,
+  "pointers": {
+   "rsi": 128
+  }
+ },
+ {
+  "asm": [
+   "add r14w, -1"
+  ],
+  "flags": 2261
+ },
+ {
+  "asm": [
+   "cmovne rax, qword ptr [rsi + 128]"
+  ],
+  "flags": 2261,
+  "pointers": {
+   "rsi": 128
+  }
+ },
+ {
+  "asm": [
+   "movsx eax, byte ptr [rsi + 128]"
+  ],
+  "flags": 2261,
+  "pointers": {
+   "rsi": 128
+  }
+ },
+ {
+  "asm": [
+   "movsx r9d, al"
+  ],
+  "flags": 2261
+ },
+ {
+  "asm": [
+   "test dword ptr [rsi + 128], eax"
+  ],
+  "flags": 2245,
+  "pointers": {
+   "rsi": 128
+  }
+ },
+ {
+  "asm": [
+   "mov r14b, byte ptr [rsi + 128]"
+  ],
+  "flags": 2261,
+  "pointers": {
+   "rsi": 128
+  }
+ },
+ {
+  "asm": [
+   "mov cl, byte ptr [rsi + 128]"
+  ],
+  "flags": 2261,
+  "pointers": {
+   "rsi": 128
+  }
+ },
+ {
+  "asm": [
+   "and r14b, 1"
+  ],
+  "flags": 2245
+ },
+ {
+  "asm": [
+   "movaps xmm1, xmm0"
+  ],
+  "flags": 2261
+ },
+ {
+  "asm": [
+   "mov cx, 65535"
+  ],
+  "flags": 2261
+ },
+ {
+  "asm": [
+   "or byte ptr [rsi + 128], 2"
+  ],
+  "flags": 2245,
+  "pointers": {
+   "rsi": 128
+  }
+ },
+ {
+  "asm": [
+   "movsx esi, cl"
+  ],
+  "flags": 2261
+ },
+ {
+  "asm": [
+   "test dword ptr [rsi + 128], 512"
+  ],
+  "flags": 2245,
+  "pointers": {
+   "rsi": 128
+  }
+ },
+ {
+  "asm": [
+   "pshufhw xmm2, xmm2, 27"
+  ],
+  "flags": 2261
+ },
+ {
+  "asm": [
+   "punpckhbw xmm1, xmm3"
+  ],
+  "flags": 2261
+ },
+ {
+  "asm": [
+   "shr dl, 1"
+  ],
+  "flags": 2245
+ },
+ {
+  "asm": [
+   "shr cl, 1"
+  ],
+  "flags": 2245
+ },
+ {
+  "asm": [
+   "cmp r12b, cl"
+  ],
+  "flags": 2261
+ },
+ {
+  "asm": [
+   "imul rdx"
+  ],
+  "flags": 2049
+ },
+ {
+  "asm": [
+   "movsx r14, dil"
+  ],
+  "flags": 2261
+ },
+ {
+  "asm": [
+   "pshufd xmm2, xmmword ptr [rsi + 128], 27"
+  ],
+  "flags": 2261,
+  "pointers": {
+   "rsi": 128
+  }
+ },
+ {
+  "asm": [
+   "or byte ptr [rsi + 128], 1"
+  ],
+  "flags": 2245,
+  "pointers": {
+   "rsi": 128
+  }
+ },
+ {
+  "asm": [
+   "pcmpgtb xmm3, xmm1"
+  ],
+  "flags": 2261
+ },
+ {
+  "asm": [
+   "test word ptr [rdi + 128], si"
+  ],
+  "flags": 2245,
+  "pointers": {
+   "rdi": 128
+  }
+ },
+ {
+  "asm": [
+   "or dword ptr [rsi + 128], 8192"
+  ],
+  "flags": 2245,
+  "pointers": {
+   "rsi": 128
+  }
+ },
+ {
+  "asm": [
+   "setle cl"
+  ],
+  "flags": 2261
+ },
+ {
+  "asm": [
+   "sar rdx, 1"
+  ],
+  "flags": 2245
+ },
+ {
+  "asm": [
+   "neg dword ptr [rsi + 128]"
+  ],
+  "flags": 2261,
+  "pointers": {
+   "rsi": 128
+  }
+ },
+ {
+  "asm": [
+   "cmovne ecx, dword ptr [rsi + 128]"
+  ],
+  "flags": 2261,
+  "pointers": {
+   "rsi": 128
+  }
+ },
+ {
+  "asm": [
+   "or si, dx"
+  ],
+  "flags": 2245
+ },
+ {
+  "asm": [
+   "sar qword ptr [rsi + 128], 3"
+  ],
+  "flags": 197,
+  "pointers": {
+   "rsi": 128
+  }
+ },
+ {
+  "asm": [
+   "sar al, 1"
+  ],
+  "flags": 2245
+ },
+ {
+  "asm": [
+   "and cl, 1"
+  ],
+  "flags": 2245
+ },
+ {
+  "asm": [
+   "bt ecx, eax"
+  ],
+  "flags": 1
+ },
+ {
+  "asm": [
+   "bt rcx, rax"
+  ],
+  "flags": 1
+ },
+ {
+  "asm": [
+   "add cl, al"
+  ],
+  "flags": 2261
+ },
+ {
+  "asm": [
+   "shld r14, r10, 40"
+  ],
+  "flags": 197
+ },
+ {
+  "asm": [
+   "add dl, cl"
+  ],
+  "flags": 2261
+ },
+ {
+  "asm": [
+   "cvtss2sd xmm0, xmm0"
+  ],
+  "flags": 2261,
+  "vectors": "double"
+ },
+ {
+  "asm": [
+   "xchg qword ptr [rsi + 128], rax"
+  ],
+  "flags": 2261,
+  "pointers": {
+   "rsi": 128
+  }
+ },
+ {
+  "asm": [
+   "setns al"
+  ],
+  "flags": 2261
+ },
+ {
+  "asm": [
+   "setns cl"
+  ],
+  "flags": 2261
+ },
+ {
+  "asm": [
+   "or cl, byte ptr [rsi + 128]"
+  ],
+  "flags": 2245,
+  "pointers": {
+   "rsi": 128
+  }
+ },
+ {
+  "asm": [
+   "xor cl, 39"
+  ],
+  "flags": 2245
+ },
+ {
+  "asm": [
+   "sets cl"
+  ],
+  "flags": 2261
+ },
+ {
+  "asm": [
+   "mov rax, qword ptr [rsi + rdi*1 + 64]"
+  ],
+  "flags": 2261,
+  "pointers": {
+   "rsi": 64
+  },
+  "fixed": {
+   "rdi": [
+    0,
+    1,
+    2,
+    3,
+    5,
+    7,
+    8,
+    15,
+    16,
+    31
+   ]
+  }
+ },
+ {
+  "asm": [
+   "lea rax, [rsi + rdi*1 + 0]"
+  ],
+  "flags": 2261,
+  "fixed": {
+   "rdi": [
+    0,
+    1,
+    2,
+    3,
+    5,
+    7,
+    8,
+    15,
+    16,
+    31
+   ]
+  }
+ },
+ {
+  "asm": [
+   "mov rax, qword ptr [rsi + rdi*1 + 72]"
+  ],
+  "flags": 2261,
+  "pointers": {
+   "rsi": 64
+  },
+  "fixed": {
+   "rdi": [
+    0,
+    1,
+    2,
+    3,
+    5,
+    7,
+    8,
+    15,
+    16,
+    31
+   ]
+  }
+ },
+ {
+  "asm": [
+   "lea rax, [rsi + rdi*1 + 8]"
+  ],
+  "flags": 2261,
+  "fixed": {
+   "rdi": [
+    0,
+    1,
+    2,
+    3,
+    5,
+    7,
+    8,
+    15,
+    16,
+    31
+   ]
+  }
+ },
+ {
+  "asm": [
+   "mov rax, qword ptr [rsi + rdi*1 + 56]"
+  ],
+  "flags": 2261,
+  "pointers": {
+   "rsi": 64
+  },
+  "fixed": {
+   "rdi": [
+    0,
+    1,
+    2,
+    3,
+    5,
+    7,
+    8,
+    15,
+    16,
+    31
+   ]
+  }
+ },
+ {
+  "asm": [
+   "lea rax, [rsi + rdi*1 + -8]"
+  ],
+  "flags": 2261,
+  "fixed": {
+   "rdi": [
+    0,
+    1,
+    2,
+    3,
+    5,
+    7,
+    8,
+    15,
+    16,
+    31
+   ]
+  }
+ },
+ {
+  "asm": [
+   "mov rax, qword ptr [rsi + rdi*1 + 128]"
+  ],
+  "flags": 2261,
+  "pointers": {
+   "rsi": 64
+  },
+  "fixed": {
+   "rdi": [
+    0,
+    1,
+    2,
+    3,
+    5,
+    7,
+    8,
+    15,
+    16,
+    31
+   ]
+  }
+ },
+ {
+  "asm": [
+   "lea rax, [rsi + rdi*1 + 64]"
+  ],
+  "flags": 2261,
+  "fixed": {
+   "rdi": [
+    0,
+    1,
+    2,
+    3,
+    5,
+    7,
+    8,
+    15,
+    16,
+    31
+   ]
+  }
+ },
+ {
+  "asm": [
+   "mov rax, qword ptr [rsi + rdi*2 + 64]"
+  ],
+  "flags": 2261,
+  "pointers": {
+   "rsi": 64
+  },
+  "fixed": {
+   "rdi": [
+    0,
+    1,
+    2,
+    3,
+    5,
+    7,
+    8,
+    15,
+    16,
+    31
+   ]
+  }
+ },
+ {
+  "asm": [
+   "lea rax, [rsi + rdi*2 + 0]"
+  ],
+  "flags": 2261,
+  "fixed": {
+   "rdi": [
+    0,
+    1,
+    2,
+    3,
+    5,
+    7,
+    8,
+    15,
+    16,
+    31
+   ]
+  }
+ },
+ {
+  "asm": [
+   "mov rax, qword ptr [rsi + rdi*2 + 72]"
+  ],
+  "flags": 2261,
+  "pointers": {
+   "rsi": 64
+  },
+  "fixed": {
+   "rdi": [
+    0,
+    1,
+    2,
+    3,
+    5,
+    7,
+    8,
+    15,
+    16,
+    31
+   ]
+  }
+ },
+ {
+  "asm": [
+   "lea rax, [rsi + rdi*2 + 8]"
+  ],
+  "flags": 2261,
+  "fixed": {
+   "rdi": [
+    0,
+    1,
+    2,
+    3,
+    5,
+    7,
+    8,
+    15,
+    16,
+    31
+   ]
+  }
+ },
+ {
+  "asm": [
+   "mov rax, qword ptr [rsi + rdi*2 + 56]"
+  ],
+  "flags": 2261,
+  "pointers": {
+   "rsi": 64
+  },
+  "fixed": {
+   "rdi": [
+    0,
+    1,
+    2,
+    3,
+    5,
+    7,
+    8,
+    15,
+    16,
+    31
+   ]
+  }
+ },
+ {
+  "asm": [
+   "lea rax, [rsi + rdi*2 + -8]"
+  ],
+  "flags": 2261,
+  "fixed": {
+   "rdi": [
+    0,
+    1,
+    2,
+    3,
+    5,
+    7,
+    8,
+    15,
+    16,
+    31
+   ]
+  }
+ },
+ {
+  "asm": [
+   "mov rax, qword ptr [rsi + rdi*2 + 128]"
+  ],
+  "flags": 2261,
+  "pointers": {
+   "rsi": 64
+  },
+  "fixed": {
+   "rdi": [
+    0,
+    1,
+    2,
+    3,
+    5,
+    7,
+    8,
+    15,
+    16,
+    31
+   ]
+  }
+ },
+ {
+  "asm": [
+   "lea rax, [rsi + rdi*2 + 64]"
+  ],
+  "flags": 2261,
+  "fixed": {
+   "rdi": [
+    0,
+    1,
+    2,
+    3,
+    5,
+    7,
+    8,
+    15,
+    16,
+    31
+   ]
+  }
+ },
+ {
+  "asm": [
+   "mov rax, qword ptr [rsi + rdi*4 + 64]"
+  ],
+  "flags": 2261,
+  "pointers": {
+   "rsi": 64
+  },
+  "fixed": {
+   "rdi": [
+    0,
+    1,
+    2,
+    3,
+    5,
+    7,
+    8,
+    15,
+    16,
+    31
+   ]
+  }
+ },
+ {
+  "asm": [
+   "lea rax, [rsi + rdi*4 + 0]"
+  ],
+  "flags": 2261,
+  "fixed": {
+   "rdi": [
+    0,
+    1,
+    2,
+    3,
+    5,
+    7,
+    8,
+    15,
+    16,
+    31
+   ]
+  }
+ },
+ {
+  "asm": [
+   "mov rax, qword ptr [rsi + rdi*4 + 72]"
+  ],
+  "flags": 2261,
+  "pointers": {
+   "rsi": 64
+  },
+  "fixed": {
+   "rdi": [
+    0,
+    1,
+    2,
+    3,
+    5,
+    7,
+    8,
+    15,
+    16,
+    31
+   ]
+  }
+ },
+ {
+  "asm": [
+   "lea rax, [rsi + rdi*4 + 8]"
+  ],
+  "flags": 2261,
+  "fixed": {
+   "rdi": [
+    0,
+    1,
+    2,
+    3,
+    5,
+    7,
+    8,
+    15,
+    16,
+    31
+   ]
+  }
+ },
+ {
+  "asm": [
+   "mov rax, qword ptr [rsi + rdi*4 + 56]"
+  ],
+  "flags": 2261,
+  "pointers": {
+   "rsi": 64
+  },
+  "fixed": {
+   "rdi": [
+    0,
+    1,
+    2,
+    3,
+    5,
+    7,
+    8,
+    15,
+    16,
+    31
+   ]
+  }
+ },
+ {
+  "asm": [
+   "lea rax, [rsi + rdi*4 + -8]"
+  ],
+  "flags": 2261,
+  "fixed": {
+   "rdi": [
+    0,
+    1,
+    2,
+    3,
+    5,
+    7,
+    8,
+    15,
+    16,
+    31
+   ]
+  }
+ },
+ {
+  "asm": [
+   "mov rax, qword ptr [rsi + rdi*4 + 128]"
+  ],
+  "flags": 2261,
+  "pointers": {
+   "rsi": 64
+  },
+  "fixed": {
+   "rdi": [
+    0,
+    1,
+    2,
+    3,
+    5,
+    7,
+    8,
+    15,
+    16,
+    31
+   ]
+  }
+ },
+ {
+  "asm": [
+   "lea rax, [rsi + rdi*4 + 64]"
+  ],
+  "flags": 2261,
+  "fixed": {
+   "rdi": [
+    0,
+    1,
+    2,
+    3,
+    5,
+    7,
+    8,
+    15,
+    16,
+    31
+   ]
+  }
+ },
+ {
+  "asm": [
+   "mov rax, qword ptr [rsi + rdi*8 + 64]"
+  ],
+  "flags": 2261,
+  "pointers": {
+   "rsi": 64
+  },
+  "fixed": {
+   "rdi": [
+    0,
+    1,
+    2,
+    3,
+    5,
+    7,
+    8,
+    15,
+    16,
+    31
+   ]
+  }
+ },
+ {
+  "asm": [
+   "lea rax, [rsi + rdi*8 + 0]"
+  ],
+  "flags": 2261,
+  "fixed": {
+   "rdi": [
+    0,
+    1,
+    2,
+    3,
+    5,
+    7,
+    8,
+    15,
+    16,
+    31
+   ]
+  }
+ },
+ {
+  "asm": [
+   "mov rax, qword ptr [rsi + rdi*8 + 72]"
+  ],
+  "flags": 2261,
+  "pointers": {
+   "rsi": 64
+  },
+  "fixed": {
+   "rdi": [
+    0,
+    1,
+    2,
+    3,
+    5,
+    7,
+    8,
+    15,
+    16,
+    31
+   ]
+  }
+ },
+ {
+  "asm": [
+   "lea rax, [rsi + rdi*8 + 8]"
+  ],
+  "flags": 2261,
+  "fixed": {
+   "rdi": [
+    0,
+    1,
+    2,
+    3,
+    5,
+    7,
+    8,
+    15,
+    16,
+    31
+   ]
+  }
+ },
+ {
+  "asm": [
+   "mov rax, qword ptr [rsi + rdi*8 + 56]"
+  ],
+  "flags": 2261,
+  "pointers": {
+   "rsi": 64
+  },
+  "fixed": {
+   "rdi": [
+    0,
+    1,
+    2,
+    3,
+    5,
+    7,
+    8,
+    15,
+    16,
+    31
+   ]
+  }
+ },
+ {
+  "asm": [
+   "lea rax, [rsi + rdi*8 + -8]"
+  ],
+  "flags": 2261,
+  "fixed": {
+   "rdi": [
+    0,
+    1,
+    2,
+    3,
+    5,
+    7,
+    8,
+    15,
+    16,
+    31
+   ]
+  }
+ },
+ {
+  "asm": [
+   "mov rax, qword ptr [rsi + rdi*8 + 128]"
+  ],
+  "flags": 2261,
+  "pointers": {
+   "rsi": 64
+  },
+  "fixed": {
+   "rdi": [
+    0,
+    1,
+    2,
+    3,
+    5,
+    7,
+    8,
+    15,
+    16,
+    31
+   ]
+  }
+ },
+ {
+  "asm": [
+   "lea rax, [rsi + rdi*8 + 64]"
+  ],
+  "flags": 2261,
+  "fixed": {
+   "rdi": [
+    0,
+    1,
+    2,
+    3,
+    5,
+    7,
+    8,
+    15,
+    16,
+    31
+   ]
+  }
+ },
+ {
+  "asm": [
+   "mov eax, dword ptr [rdi*4 + rsi + 100]"
+  ],
+  "flags": 2261,
+  "pointers": {
+   "rsi": 64
+  },
+  "fixed": {
+   "rdi": [
+    0,
+    1,
+    2,
+    3,
+    5,
+    7,
+    8,
+    15,
+    16,
+    31
+   ]
+  }
+ },
+ {
+  "asm": [
+   "movzx eax, byte ptr [rsi + rcx + 1]"
+  ],
+  "flags": 2261,
+  "pointers": {
+   "rsi": 64
+  },
+  "fixed": {
+   "rcx": [
+    0,
+    1,
+    2,
+    3,
+    5,
+    7,
+    8,
+    15,
+    16,
+    31
+   ]
+  }
+ },
+ {
+  "asm": [
+   "mov rax, qword ptr [rsi + rcx*8]"
+  ],
+  "flags": 2261,
+  "pointers": {
+   "rsi": 64
+  },
+  "fixed": {
+   "rcx": [
+    0,
+    1,
+    2,
+    3,
+    5,
+    7,
+    8,
+    15,
+    16,
+    31
+   ]
+  }
+ },
+ {
+  "asm": [
+   "lea eax, [rcx + rcx*2]"
+  ],
+  "flags": 2261
+ },
+ {
+  "asm": [
+   "lea r8d, [rax + rdx*8 - 7]"
+  ],
+  "flags": 2261
+ },
+ {
+  "asm": [
+   "push rax",
+   "push rbx",
+   "pop rcx",
+   "pop rdx"
+  ],
+  "flags": 2261
+ },
+ {
+  "asm": [
+   "push qword ptr [rsi + 64]",
+   "pop qword ptr [rsi + 128]"
+  ],
+  "flags": 2261,
+  "pointers": {
+   "rsi": 0
+  }
+ },
+ {
+  "asm": [
+   "push 12345",
+   "pop rax"
+  ],
+  "flags": 2261
+ },
+ {
+  "asm": [
+   "push -1",
+   "pop rax"
+  ],
+  "flags": 2261
+ },
+ {
+  "asm": [
+   "push rbp",
+   "mov rbp, rsp",
+   "push rax",
+   "push rcx",
+   "leave"
+  ],
+  "flags": 2261
+ },
+ {
+  "asm": [
+   "lea rdi, [rsi + 256]",
+   "mov ecx, 9",
+   "rep movsq"
+  ],
+  "flags": 2261,
+  "pointers": {
+   "rsi": 0
+  }
+ },
+ {
+  "asm": [
+   "lea rdi, [rsi + 300]",
+   "mov ecx, 17",
+   "rep movsb"
+  ],
+  "flags": 2261,
+  "pointers": {
+   "rsi": 0
+  }
+ },
+ {
+  "asm": [
+   "lea rdi, [rsi + 1]",
+   "mov ecx, 64",
+   "rep movsb"
+  ],
+  "flags": 2261,
+  "pointers": {
+   "rsi": 0
+  }
+ },
+ {
+  "asm": [
+   "lea rdi, [rsi + 64]",
+   "mov ecx, 30",
+   "rep stosb"
+  ],
+  "flags": 2261,
+  "pointers": {
+   "rsi": 0
+  }
+ },
+ {
+  "asm": [
+   "lea rdi, [rsi + 64]",
+   "mov ecx, 5",
+   "rep stosq"
+  ],
+  "flags": 2261,
+  "pointers": {
+   "rsi": 0
+  }
+ },
+ {
+  "asm": [
+   "lea rdi, [rsi + 64]",
+   "movsq"
+  ],
+  "flags": 2261,
+  "pointers": {
+   "rsi": 0
+  }
+ },
+ {
+  "asm": [
+   "xchg qword ptr [rsi + 128], rax"
+  ],
+  "flags": 2261,
+  "pointers": {
+   "rsi": 0
+  }
+ },
+ {
+  "asm": [
+   "xchg rax, rcx"
+  ],
+  "flags": 2261
+ },
+ {
+  "asm": [
+   "xchg eax, ecx"
+  ],
+  "flags": 2261
+ },
+ {
+  "asm": [
+   "bt qword ptr [rsi + 128], rax"
+  ],
+  "flags": 1,
+  "pointers": {
+   "rsi": 0
+  },
+  "fixed": {
+   "rax": [
+    0,
+    5,
+    63,
+    64,
+    100,
+    18446744073709551615,
+    18446744073709551551
+   ]
+  }
+ },
+ {
+  "asm": [
+   "bts dword ptr [rsi + 128], eax"
+  ],
+  "flags": 1,
+  "pointers": {
+   "rsi": 0
+  },
+  "fixed": {
+   "rax": [
+    0,
+    5,
+    31,
+    32,
+    100,
+    4294967295,
+    4294967232
+   ]
+  }
+ },
+ {
+  "asm": [
+   "cmovae rax, qword ptr [rsi + 128]"
+  ],
+  "flags": 2261,
+  "pointers": {
+   "rsi": 0
+  }
+ },
+ {
+  "asm": [
+   "cmovne eax, dword ptr [rsi + 128]"
+  ],
+  "flags": 2261,
+  "pointers": {
+   "rsi": 0
+  }
+ },
+ {
+  "asm": [
+   "sete byte ptr [rsi + 128]"
+  ],
+  "flags": 2261,
+  "pointers": {
+   "rsi": 0
+  }
+ },
+ {
+  "asm": [
+   "shl al, cl"
+  ],
+  "flags": 197,
+  "fixed": {
+   "rcx": [
+    0,
+    1,
+    2,
+    7,
+    8,
+    9,
+    15,
+    16,
+    17,
+    31,
+    32,
+    33,
+    63,
+    64,
+    65
+   ]
+  }
+ },
+ {
+  "asm": [
+   "shl al, 1"
+  ],
+  "flags": 2245
+ },
+ {
+  "asm": [
+   "shl ax, cl"
+  ],
+  "flags": 197,
+  "fixed": {
+   "rcx": [
+    0,
+    1,
+    2,
+    7,
+    8,
+    9,
+    15,
+    16,
+    17,
+    31,
+    32,
+    33,
+    63,
+    64,
+    65
+   ]
+  }
+ },
+ {
+  "asm": [
+   "shl ax, 1"
+  ],
+  "flags": 2245
+ },
+ {
+  "asm": [
+   "shl eax, cl"
+  ],
+  "flags": 197,
+  "fixed": {
+   "rcx": [
+    0,
+    1,
+    2,
+    7,
+    8,
+    9,
+    15,
+    16,
+    17,
+    31,
+    32,
+    33,
+    63,
+    64,
+    65
+   ]
+  }
+ },
+ {
+  "asm": [
+   "shl eax, 1"
+  ],
+  "flags": 2245
+ },
+ {
+  "asm": [
+   "shl rax, cl"
+  ],
+  "flags": 197,
+  "fixed": {
+   "rcx": [
+    0,
+    1,
+    2,
+    7,
+    8,
+    9,
+    15,
+    16,
+    17,
+    31,
+    32,
+    33,
+    63,
+    64,
+    65
+   ]
+  }
+ },
+ {
+  "asm": [
+   "shl rax, 1"
+  ],
+  "flags": 2245
+ },
+ {
+  "asm": [
+   "shr al, cl"
+  ],
+  "flags": 197,
+  "fixed": {
+   "rcx": [
+    0,
+    1,
+    2,
+    7,
+    8,
+    9,
+    15,
+    16,
+    17,
+    31,
+    32,
+    33,
+    63,
+    64,
+    65
+   ]
+  }
+ },
+ {
+  "asm": [
+   "shr al, 1"
+  ],
+  "flags": 2245
+ },
+ {
+  "asm": [
+   "shr ax, cl"
+  ],
+  "flags": 197,
+  "fixed": {
+   "rcx": [
+    0,
+    1,
+    2,
+    7,
+    8,
+    9,
+    15,
+    16,
+    17,
+    31,
+    32,
+    33,
+    63,
+    64,
+    65
+   ]
+  }
+ },
+ {
+  "asm": [
+   "shr ax, 1"
+  ],
+  "flags": 2245
+ },
+ {
+  "asm": [
+   "shr eax, cl"
+  ],
+  "flags": 197,
+  "fixed": {
+   "rcx": [
+    0,
+    1,
+    2,
+    7,
+    8,
+    9,
+    15,
+    16,
+    17,
+    31,
+    32,
+    33,
+    63,
+    64,
+    65
+   ]
+  }
+ },
+ {
+  "asm": [
+   "shr eax, 1"
+  ],
+  "flags": 2245
+ },
+ {
+  "asm": [
+   "shr rax, cl"
+  ],
+  "flags": 197,
+  "fixed": {
+   "rcx": [
+    0,
+    1,
+    2,
+    7,
+    8,
+    9,
+    15,
+    16,
+    17,
+    31,
+    32,
+    33,
+    63,
+    64,
+    65
+   ]
+  }
+ },
+ {
+  "asm": [
+   "shr rax, 1"
+  ],
+  "flags": 2245
+ },
+ {
+  "asm": [
+   "sar al, cl"
+  ],
+  "flags": 197,
+  "fixed": {
+   "rcx": [
+    0,
+    1,
+    2,
+    7,
+    8,
+    9,
+    15,
+    16,
+    17,
+    31,
+    32,
+    33,
+    63,
+    64,
+    65
+   ]
+  }
+ },
+ {
+  "asm": [
+   "sar al, 1"
+  ],
+  "flags": 2245
+ },
+ {
+  "asm": [
+   "sar ax, cl"
+  ],
+  "flags": 197,
+  "fixed": {
+   "rcx": [
+    0,
+    1,
+    2,
+    7,
+    8,
+    9,
+    15,
+    16,
+    17,
+    31,
+    32,
+    33,
+    63,
+    64,
+    65
+   ]
+  }
+ },
+ {
+  "asm": [
+   "sar ax, 1"
+  ],
+  "flags": 2245
+ },
+ {
+  "asm": [
+   "sar eax, cl"
+  ],
+  "flags": 197,
+  "fixed": {
+   "rcx": [
+    0,
+    1,
+    2,
+    7,
+    8,
+    9,
+    15,
+    16,
+    17,
+    31,
+    32,
+    33,
+    63,
+    64,
+    65
+   ]
+  }
+ },
+ {
+  "asm": [
+   "sar eax, 1"
+  ],
+  "flags": 2245
+ },
+ {
+  "asm": [
+   "sar rax, cl"
+  ],
+  "flags": 197,
+  "fixed": {
+   "rcx": [
+    0,
+    1,
+    2,
+    7,
+    8,
+    9,
+    15,
+    16,
+    17,
+    31,
+    32,
+    33,
+    63,
+    64,
+    65
+   ]
+  }
+ },
+ {
+  "asm": [
+   "sar rax, 1"
+  ],
+  "flags": 2245
+ },
+ {
+  "asm": [
+   "rol al, cl"
+  ],
+  "flags": 1,
+  "fixed": {
+   "rcx": [
+    0,
+    1,
+    2,
+    7,
+    8,
+    9,
+    15,
+    16,
+    17,
+    31,
+    32,
+    33,
+    63,
+    64,
+    65
+   ]
+  }
+ },
+ {
+  "asm": [
+   "rol al, 1"
+  ],
+  "flags": 2049
+ },
+ {
+  "asm": [
+   "rol ax, cl"
+  ],
+  "flags": 1,
+  "fixed": {
+   "rcx": [
+    0,
+    1,
+    2,
+    7,
+    8,
+    9,
+    15,
+    16,
+    17,
+    31,
+    32,
+    33,
+    63,
+    64,
+    65
+   ]
+  }
+ },
+ {
+  "asm": [
+   "rol ax, 1"
+  ],
+  "flags": 2049
+ },
+ {
+  "asm": [
+   "rol eax, cl"
+  ],
+  "flags": 1,
+  "fixed": {
+   "rcx": [
+    0,
+    1,
+    2,
+    7,
+    8,
+    9,
+    15,
+    16,
+    17,
+    31,
+    32,
+    33,
+    63,
+    64,
+    65
+   ]
+  }
+ },
+ {
+  "asm": [
+   "rol eax, 1"
+  ],
+  "flags": 2049
+ },
+ {
+  "asm": [
+   "rol rax, cl"
+  ],
+  "flags": 1,
+  "fixed": {
+   "rcx": [
+    0,
+    1,
+    2,
+    7,
+    8,
+    9,
+    15,
+    16,
+    17,
+    31,
+    32,
+    33,
+    63,
+    64,
+    65
+   ]
+  }
+ },
+ {
+  "asm": [
+   "rol rax, 1"
+  ],
+  "flags": 2049
+ },
+ {
+  "asm": [
+   "ror al, cl"
+  ],
+  "flags": 1,
+  "fixed": {
+   "rcx": [
+    0,
+    1,
+    2,
+    7,
+    8,
+    9,
+    15,
+    16,
+    17,
+    31,
+    32,
+    33,
+    63,
+    64,
+    65
+   ]
+  }
+ },
+ {
+  "asm": [
+   "ror al, 1"
+  ],
+  "flags": 2049
+ },
+ {
+  "asm": [
+   "ror ax, cl"
+  ],
+  "flags": 1,
+  "fixed": {
+   "rcx": [
+    0,
+    1,
+    2,
+    7,
+    8,
+    9,
+    15,
+    16,
+    17,
+    31,
+    32,
+    33,
+    63,
+    64,
+    65
+   ]
+  }
+ },
+ {
+  "asm": [
+   "ror ax, 1"
+  ],
+  "flags": 2049
+ },
+ {
+  "asm": [
+   "ror eax, cl"
+  ],
+  "flags": 1,
+  "fixed": {
+   "rcx": [
+    0,
+    1,
+    2,
+    7,
+    8,
+    9,
+    15,
+    16,
+    17,
+    31,
+    32,
+    33,
+    63,
+    64,
+    65
+   ]
+  }
+ },
+ {
+  "asm": [
+   "ror eax, 1"
+  ],
+  "flags": 2049
+ },
+ {
+  "asm": [
+   "ror rax, cl"
+  ],
+  "flags": 1,
+  "fixed": {
+   "rcx": [
+    0,
+    1,
+    2,
+    7,
+    8,
+    9,
+    15,
+    16,
+    17,
+    31,
+    32,
+    33,
+    63,
+    64,
+    65
+   ]
+  }
+ },
+ {
+  "asm": [
+   "ror rax, 1"
+  ],
+  "flags": 2049
+ },
+ {
+  "asm": [
+   "shld eax, edx, cl"
+  ],
+  "flags": 197,
+  "fixed": {
+   "rcx": [
+    0,
+    1,
+    5,
+    31,
+    32,
+    33
+   ]
+  }
+ },
+ {
+  "asm": [
+   "shrd rax, rdx, cl"
+  ],
+  "flags": 197,
+  "fixed": {
+   "rcx": [
+    0,
+    1,
+    5,
+    63,
+    64,
+    65
+   ]
+  }
+ },
+ {
+  "asm": [
+   "imul rax, qword ptr [rsi + 128], 12345"
+  ],
+  "flags": 2049,
+  "pointers": {
+   "rsi": 0
+  }
+ },
+ {
+  "asm": [
+   "mul rcx"
+  ],
+  "flags": 2049
+ },
+ {
+  "asm": [
+   "mul ecx"
+  ],
+  "flags": 2049
+ },
+ {
+  "asm": [
+   "mul cl"
+  ],
+  "flags": 2049
+ },
+ {
+  "asm": [
+   "imul rcx"
+  ],
+  "flags": 2049
+ },
+ {
+  "asm": [
+   "imul ecx"
+  ],
+  "flags": 2049
+ },
+ {
+  "asm": [
+   "imul cl"
+  ],
+  "flags": 2049
+ },
+ {
+  "asm": [
+   "cqo"
+  ],
+  "flags": 2261
+ },
+ {
+  "asm": [
+   "cdq"
+  ],
+  "flags": 2261
+ },
+ {
+  "asm": [
+   "cdqe"
+  ],
+  "flags": 2261
+ },
+ {
+  "asm": [
+   "cwde"
+  ],
+  "flags": 2261
+ },
+ {
+  "asm": [
+   "cbw"
+  ],
+  "flags": 2261
+ },
+ {
+  "asm": [
+   "cwd"
+  ],
+  "flags": 2261
+ },
+ {
+  "asm": [
+   "neg al"
+  ],
+  "flags": 2261
+ },
+ {
+  "asm": [
+   "not word ptr [rsi + 128]"
+  ],
+  "flags": 2261,
+  "pointers": {
+   "rsi": 0
+  }
+ },
+ {
+  "asm": [
+   "adc rax, -1"
+  ],
+  "flags": 2261
+ },
+ {
+  "asm": [
+   "sbb rax, rcx"
+  ],
+  "flags": 2261
+ },
+ {
+  "asm": [
+   "sbb al, 5"
+  ],
+  "flags": 2261
+ },
+ {
+  "asm": [
+   "adc dword ptr [rsi+128], ecx"
+  ],
+  "flags": 2261,
+  "pointers": {
+   "rsi": 0
+  }
+ },
+ {
+  "asm": [
+   "inc byte ptr [rsi + 128]"
+  ],
+  "flags": 2261,
+  "pointers": {
+   "rsi": 0
+  }
+ },
+ {
+  "asm": [
+   "dec rax"
+  ],
+  "flags": 2261
+ },
+ {
+  "asm": [
+   "movsxd rax, dword ptr [rsi + 128]"
+  ],
+  "flags": 2261,
+  "pointers": {
+   "rsi": 0
+  }
+ },
+ {
+  "asm": [
+   "movsx rax, al"
+  ],
+  "flags": 2261
+ },
+ {
+  "asm": [
+   "movsx eax, word ptr [rsi + 128]"
+  ],
+  "flags": 2261,
+  "pointers": {
+   "rsi": 0
+  }
+ },
+ {
+  "asm": [
+   "bswap eax"
+  ],
+  "flags": 2261
+ },
+ {
+  "asm": [
+   "bswap rax"
+  ],
+  "flags": 2261
+ },
+ {
+  "asm": [
+   "popcnt rax, rcx"
+  ],
+  "flags": 2261
+ },
+ {
+  "asm": [
+   "tzcnt eax, ecx"
+  ],
+  "flags": 65,
+  "fixed": {
+   "rcx": [
+    0,
+    1,
+    2147483648,
+    256
+   ]
+  }
+ },
+ {
+  "asm": [
+   "lzcnt rax, rcx"
+  ],
+  "flags": 65,
+  "fixed": {
+   "rcx": [
+    0,
+    1,
+    9223372036854775808
+   ]
+  }
+ },
+ {
+  "asm": [
+   "bsf eax, ecx"
+  ],
+  "flags": 64,
+  "fixed": {
+   "rcx": [
+    0,
+    1,
+    2147483648,
+    256,
+    1099511627776
+   ]
+  }
+ },
+ {
+  "asm": [
+   "bsr rax, rcx"
+  ],
+  "flags": 64,
+  "fixed": {
+   "rcx": [
+    0,
+    1,
+    9223372036854775808
+   ]
+  }
+ },
+ {
+  "asm": [
+   "bzhi rax, rcx, rdx"
+  ],
+  "flags": 2241,
+  "fixed": {
+   "rdx": [
+    0,
+    1,
+    32,
+    63,
+    64,
+    65,
+    255,
+    256,
+    511
+   ]
+  }
+ },
+ {
+  "asm": [
+   "mov ah, bl"
+  ],
+  "flags": 2261
+ },
+ {
+  "asm": [
+   "mov bh, ch"
+  ],
+  "flags": 2261
+ },
+ {
+  "asm": [
+   "add ah, al"
+  ],
+  "flags": 2261
+ },
+ {
+  "asm": [
+   "movzx eax, ah"
+  ],
+  "flags": 2261
+ },
+ {
+  "asm": [
+   "xor edx, edx",
+   "div rcx"
+  ],
+  "flags": 0,
+  "fixed": {
+   "rcx": [
+    3,
+    7,
+    1000,
+    4294967295,
+    4294967297,
+    9223372036854775807,
+    18446744073709551615,
+    1,
+    2
+   ]
+  }
+ },
+ {
+  "asm": [
+   "xor edx, edx",
+   "div ecx"
+  ],
+  "flags": 0,
+  "fixed": {
+   "rcx": [
+    3,
+    7,
+    1000,
+    4294967295,
+    4294967297,
+    9223372036854775807,
+    18446744073709551615,
+    1,
+    2
+   ]
+  }
+ },
+ {
+  "asm": [
+   "xor edx, edx",
+   "div cx"
+  ],
+  "flags": 0,
+  "fixed": {
+   "rcx": [
+    3,
+    7,
+    1000,
+    65535,
+    1
+   ]
+  }
+ },
+ {
+  "asm": [
+   "movzx eax, al",
+   "div cl"
+  ],
+  "flags": 0,
+  "fixed": {
+   "rcx": [
+    200,
+    255,
+    1795
+   ]
+  },
+  "ignore": []
+ },
+ {
+  "asm": [
+   "cqo",
+   "idiv rcx"
+  ],
+  "flags": 0,
+  "fixed": {
+   "rcx": [
+    3,
+    18446744073709551613,
+    7,
+    1000,
+    18446744073709551615,
+    2
+   ]
+  },
+  "ignore": []
+ },
+ {
+  "asm": [
+   "cdq",
+   "idiv ecx"
+  ],
+  "flags": 0,
+  "fixed": {
+   "rcx": [
+    3,
+    4294967293,
+    7,
+    1000,
+    2
+   ]
+  }
+ },
+ {
+  "asm": [
+   "cwd",
+   "idiv cx"
+  ],
+  "flags": 0,
+  "fixed": {
+   "rcx": [
+    3,
+    65533,
+    7,
+    1000,
+    2
+   ]
+  }
+ },
+ {
+  "asm": [
+   "xor edx, edx",
+   "div qword ptr [rsi + 128]"
+  ],
+  "flags": 0,
+  "pointers": {
+   "rsi": 0
+  },
+  "ignore": [
+   "rax",
+   "rdx"
+  ]
+ },
+ {
+  "asm": [
+   "lock add qword ptr [rsi + 128], rcx"
+  ],
+  "flags": 2261,
+  "pointers": {
+   "rsi": 0
+  }
+ },
+ {
+  "asm": [
+   "lock sub qword ptr [rsi + 128], rcx"
+  ],
+  "flags": 2261,
+  "pointers": {
+   "rsi": 0
+  }
+ },
+ {
+  "asm": [
+   "lock and qword ptr [rsi + 128], rcx"
+  ],
+  "flags": 2245,
+  "pointers": {
+   "rsi": 0
+  }
+ },
+ {
+  "asm": [
+   "lock or qword ptr [rsi + 128], rcx"
+  ],
+  "flags": 2245,
+  "pointers": {
+   "rsi": 0
+  }
+ },
+ {
+  "asm": [
+   "lock xor qword ptr [rsi + 128], rcx"
+  ],
+  "flags": 2245,
+  "pointers": {
+   "rsi": 0
+  }
+ },
+ {
+  "asm": [
+   "lock xadd qword ptr [rsi + 128], rcx"
+  ],
+  "flags": 2261,
+  "pointers": {
+   "rsi": 0
+  }
+ },
+ {
+  "asm": [
+   "xadd qword ptr [rsi + 128], rcx"
+  ],
+  "flags": 2261,
+  "pointers": {
+   "rsi": 0
+  }
+ },
+ {
+  "asm": [
+   "lock inc qword ptr [rsi + 128]"
+  ],
+  "flags": 2261,
+  "pointers": {
+   "rsi": 0
+  }
+ },
+ {
+  "asm": [
+   "lock dec qword ptr [rsi + 128]"
+  ],
+  "flags": 2261,
+  "pointers": {
+   "rsi": 0
+  }
+ },
+ {
+  "asm": [
+   "lock add qword ptr [rsi + 128], -1"
+  ],
+  "flags": 2261,
+  "pointers": {
+   "rsi": 0
+  }
+ },
+ {
+  "asm": [
+   "mov rax, qword ptr [rsi + 128]",
+   "lock cmpxchg qword ptr [rsi + 128], rcx"
+  ],
+  "flags": 64,
+  "pointers": {
+   "rsi": 0
+  }
+ },
+ {
+  "asm": [
+   "lock cmpxchg qword ptr [rsi + 128], rcx"
+  ],
+  "flags": 64,
+  "pointers": {
+   "rsi": 0
+  }
+ },
+ {
+  "asm": [
+   "cmpxchg rdx, rcx"
+  ],
+  "flags": 64,
+  "fixed": {
+   "rdx": [
+    0,
+    5,
+    7
+   ],
+   "rax": [
+    5,
+    7
+   ]
+  }
+ },
+ {
+  "asm": [
+   "xadd rdx, rcx"
+  ],
+  "flags": 2261
+ },
+ {
+  "asm": [
+   "lock xchg qword ptr [rsi + 128], rcx"
+  ],
+  "flags": 2261,
+  "pointers": {
+   "rsi": 0
+  }
+ },
+ {
+  "asm": [
+   "lock add dword ptr [rsi + 128], ecx"
+  ],
+  "flags": 2261,
+  "pointers": {
+   "rsi": 0
+  }
+ },
+ {
+  "asm": [
+   "lock sub dword ptr [rsi + 128], ecx"
+  ],
+  "flags": 2261,
+  "pointers": {
+   "rsi": 0
+  }
+ },
+ {
+  "asm": [
+   "lock and dword ptr [rsi + 128], ecx"
+  ],
+  "flags": 2245,
+  "pointers": {
+   "rsi": 0
+  }
+ },
+ {
+  "asm": [
+   "lock or dword ptr [rsi + 128], ecx"
+  ],
+  "flags": 2245,
+  "pointers": {
+   "rsi": 0
+  }
+ },
+ {
+  "asm": [
+   "lock xor dword ptr [rsi + 128], ecx"
+  ],
+  "flags": 2245,
+  "pointers": {
+   "rsi": 0
+  }
+ },
+ {
+  "asm": [
+   "lock xadd dword ptr [rsi + 128], ecx"
+  ],
+  "flags": 2261,
+  "pointers": {
+   "rsi": 0
+  }
+ },
+ {
+  "asm": [
+   "xadd dword ptr [rsi + 128], ecx"
+  ],
+  "flags": 2261,
+  "pointers": {
+   "rsi": 0
+  }
+ },
+ {
+  "asm": [
+   "lock inc dword ptr [rsi + 128]"
+  ],
+  "flags": 2261,
+  "pointers": {
+   "rsi": 0
+  }
+ },
+ {
+  "asm": [
+   "lock dec dword ptr [rsi + 128]"
+  ],
+  "flags": 2261,
+  "pointers": {
+   "rsi": 0
+  }
+ },
+ {
+  "asm": [
+   "lock add dword ptr [rsi + 128], -1"
+  ],
+  "flags": 2261,
+  "pointers": {
+   "rsi": 0
+  }
+ },
+ {
+  "asm": [
+   "mov eax, dword ptr [rsi + 128]",
+   "lock cmpxchg dword ptr [rsi + 128], ecx"
+  ],
+  "flags": 64,
+  "pointers": {
+   "rsi": 0
+  }
+ },
+ {
+  "asm": [
+   "lock cmpxchg dword ptr [rsi + 128], ecx"
+  ],
+  "flags": 64,
+  "pointers": {
+   "rsi": 0
+  }
+ },
+ {
+  "asm": [
+   "cmpxchg edx, ecx"
+  ],
+  "flags": 64,
+  "fixed": {
+   "rdx": [
+    0,
+    5,
+    7
+   ],
+   "rax": [
+    5,
+    7
+   ]
+  }
+ },
+ {
+  "asm": [
+   "xadd edx, ecx"
+  ],
+  "flags": 2261
+ },
+ {
+  "asm": [
+   "lock xchg dword ptr [rsi + 128], ecx"
+  ],
+  "flags": 2261,
+  "pointers": {
+   "rsi": 0
+  }
+ },
+ {
+  "asm": [
+   "fld tbyte ptr [rsi + 128]",
+   "fstp tbyte ptr [rsi + 160]"
+  ],
+  "flags": 2261,
+  "pointers": {
+   "rsi": 0
+  }
+ },
+ {
+  "asm": [
+   "fldz",
+   "fld tbyte ptr [rsi + 128]",
+   "fld st(0)",
+   "fstp tbyte ptr [rsi + 176]",
+   "fstp st(1)",
+   "fstp tbyte ptr [rsi + 192]"
+  ],
+  "flags": 2261,
+  "pointers": {
+   "rsi": 0
+  }
+ },
+ {
+  "asm": [
+   "fld tbyte ptr [rsi + 128]",
+   "fld tbyte ptr [rsi + 144]",
+   "fstp st(0)",
+   "fstp tbyte ptr [rsi + 208]"
+  ],
+  "flags": 2261,
+  "pointers": {
+   "rsi": 0
+  }
+ }
+]

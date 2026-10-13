@@ -1,3 +1,4 @@
+from elf_segments import runtime_segments
 import argparse
 import hashlib
 import io
@@ -11,6 +12,9 @@ from elftools.dwarf.callframe import FDE
 from elftools.elf.elffile import ELFFile
 from elftools.elf.relocation import RelocationSection
 from elftools.elf.sections import SymbolTableSection
+
+import dynamic
+import unwind_index
 
 
 class RecoveryError(ValueError):
@@ -31,7 +35,7 @@ def load_elf(path):
 
 
 def read_address(elf, address, size):
-    segments = [s for s in elf.iter_segments() if s['p_type'] == 'PT_LOAD'
+    segments = [s for s in runtime_segments(elf) if s['p_type'] == 'PT_LOAD'
                 and s['p_vaddr'] <= address and address + size <= s['p_vaddr'] + s['p_filesz']]
     require(len(segments) == 1, f'not one file-backed segment for 0x{address:x}+{size}')
     segment = segments[0]
@@ -76,7 +80,7 @@ def object_mappings(image, object_path):
             if not isinstance(relocations, RelocationSection) or relocations['sh_info'] != index:
                 continue
             for relocation in relocations.iter_relocations():
-                widths = {0: 0, 1: 8, 2: 4, 4: 4, 10: 4, 11: 4, 24: 8, 41: 4, 42: 4}
+                widths = {0: 0, 1: 8, 2: 4, 4: 4, 10: 4, 11: 4, 19: 4, 20: 4, 24: 8, 41: 4, 42: 4}
                 kind, offset = relocation['r_info_type'], relocation['r_offset']
                 require(kind in widths, f'unknown executable relocation width: {kind}')
                 width = widths[kind]
@@ -112,15 +116,56 @@ def symbol_candidates(elf, mappings=None, origin='image'):
     return result
 
 
-def fde_candidates(elf):
+def relocation_bindings(elf, view):
+    if not any(segment['type'] == unwind_index.PT_DYNAMIC for segment in view.segments):
+        return {}
+    try:
+        parsed = dynamic.parse_dynamic(elf, view.read)
+    except dynamic.DynamicError:
+        return {}
+    return {relocation['slot']: relocation for relocation in parsed['relocations']}
+
+
+def indexed_fde_candidates(elf, raw):
+    try:
+        view = unwind_index.LoadView(raw)
+        index = unwind_index.read_unwind_index(view, relocation_bindings(elf, view))
+    except unwind_index.UnwindError as error:
+        raise RecoveryError(f'unwind index rejected: {error}') from error
+    candidates = [{'address': fde['begin'], 'size': fde['size'], 'symbol': None,
+                   'evidence': [{'kind': 'eh-frame-hdr-range', 'fde': fde['fde'],
+                                 'rule': f'{unwind_index.RULE}.v{unwind_index.RULE_VERSION}'}], 'abi': None}
+                  for fde in index['fdes'] if fde['status'] == 'qualified']
+    unknowns = [{'kind': 'unwind', 'obligation': item['kind'], 'subject': item['subject'], 'detail': item['detail']}
+                for item in index['obligations']]
+    return candidates, unknowns
+
+
+def fde_candidates(elf, raw):
+    if any(segment['p_type'] == 'PT_GNU_EH_FRAME' for segment in elf.iter_segments()):
+        return indexed_fde_candidates(elf, raw)
     if elf.get_section_by_name('.eh_frame') is None:
-        return []
+        if elf.num_sections():
+            return [], []
+        return [], [{'kind': 'unwind', 'obligation': 'unwind-index-missing', 'subject': None,
+                     'detail': 'no PT_GNU_EH_FRAME and no section table'}]
     result = []
     for entry in elf.get_dwarf_info().EH_CFI_entries():
         if isinstance(entry, FDE):
             result.append({'address': entry['initial_location'], 'size': entry['address_range'], 'symbol': None,
                            'evidence': [{'kind': 'eh-frame-range', 'offset': entry.offset}], 'abi': None})
-    return result
+    return result, []
+
+
+def dynamic_symbol_names(elf):
+    symbols = elf.get_section_by_name('.dynsym')
+    if symbols is not None:
+        return [symbol.name for symbol in symbols.iter_symbols()]
+    try:
+        parsed = dynamic.parse_dynamic(elf, lambda address, size: read_address(elf, address, size))
+    except dynamic.DynamicError as error:
+        raise RecoveryError(f'dynamic symbols rejected: {error}') from error
+    return [symbol['name'] for symbol in parsed['symbols']]
 
 
 def dynamic_facts(elf):
@@ -129,7 +174,7 @@ def dynamic_facts(elf):
         return [], [], []
     tags = {t.entry.d_tag: t.entry.d_val for t in dynamic.iter_tags()}
     require(tags.get('DT_RELAENT', 24) == 24, 'unsupported dynamic relocation size')
-    symbols = elf.get_section_by_name('.dynsym')
+    symbols = None
     imports, pointers, unknowns = {}, [], []
     for address, size, kind in [(tags.get('DT_JMPREL', 0), tags.get('DT_PLTRELSZ', 0), 'plt'),
                                 (tags.get('DT_RELA', 0), tags.get('DT_RELASZ', 0), 'data')]:
@@ -143,8 +188,9 @@ def dynamic_facts(elf):
             addend = int.from_bytes(raw[index + 16:index + 24], 'little', signed=True)
             relocation_type, symbol_index = info & 0xffffffff, info >> 32
             if kind == 'plt' and relocation_type == 7 and addend == 0:
-                require(symbols is not None and symbol_index < symbols.num_symbols(), 'missing dynamic symbol')
-                name = symbols.get_symbol(symbol_index).name
+                symbols = dynamic_symbol_names(elf) if symbols is None else symbols
+                require(symbol_index < len(symbols), 'missing dynamic symbol')
+                name = symbols[symbol_index]
                 item = imports.setdefault(name, {'symbol': name, 'slots': [], 'abi': None})
                 item['slots'].append(slot)
             elif kind == 'data' and relocation_type == 8 and symbol_index == 0:
@@ -186,7 +232,8 @@ def instruction_facts(elf, candidate):
 def recover_image(path, objects=()):
     raw, elf = load_elf(path)
     require(elf['e_type'] != 'ET_REL', 'input must be a linked executable image')
-    functions = symbol_candidates(elf) + fde_candidates(elf)
+    ranges, unwind_unknowns = fde_candidates(elf, raw)
+    functions = symbol_candidates(elf) + ranges
     companions = []
     for companion in objects:
         obj, evidence, mappings = object_mappings(elf, companion)
@@ -204,6 +251,7 @@ def recover_image(path, objects=()):
     for candidate in functions:
         candidate['analysis'] = instruction_facts(elf, candidate)
     imports, pointers, unknowns = dynamic_facts(elf)
+    unknowns = unwind_unknowns + unknowns
     data = [{'address': s['p_vaddr'], 'size': s['p_memsz']} for s in elf.iter_segments()
             if s['p_type'] == 'PT_LOAD' and not s['p_flags'] & 1 and s['p_memsz']]
     for segment in elf.iter_segments():

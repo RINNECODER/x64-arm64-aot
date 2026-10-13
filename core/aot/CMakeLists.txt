@@ -38,7 +38,12 @@ add_custom_target(native_aot ALL DEPENDS capstone_shared)
 add_library(anyps5_native_image STATIC "${CMAKE_SOURCE_DIR}/core/libs/native/NativeAotImage.cpp"
     "${CMAKE_SOURCE_DIR}/core/libs/native/NativeAotPointer.cpp"
     "${CMAKE_SOURCE_DIR}/core/libs/native/NativeAotDispatch.cpp"
-    "${CMAKE_SOURCE_DIR}/core/libs/native/NativeAotTls.cpp")
+    "${CMAKE_SOURCE_DIR}/core/libs/native/NativeAotTls.cpp"
+    "${CMAKE_SOURCE_DIR}/core/libs/native/NativeAotBundle.cpp"
+    "${CMAKE_SOURCE_DIR}/core/libs/prx/libkernel/Pthread/src/GuestTlsMacOs.cpp")
+target_compile_definitions(anyps5_native_image PRIVATE APS5_NATIVE_TLS_POSIX=1)
+find_package(Threads REQUIRED)
+target_link_libraries(anyps5_native_image PUBLIC Threads::Threads)
 if(APPLE)
     target_sources(anyps5_native_image PRIVATE "${CMAKE_SOURCE_DIR}/core/libs/native/NativeAotReadonly.cpp")
 else()
@@ -48,6 +53,15 @@ target_include_directories(anyps5_native_image PUBLIC "${CMAKE_SOURCE_DIR}/core/
 set_target_properties(anyps5_native_image PROPERTIES CXX_EXTENSIONS OFF)
 
 if(BUILD_TESTING)
+    add_test_executable(native_aot_thread_boundary_tests "${CMAKE_SOURCE_DIR}/core/libs/tests/NativeAotThreads.cpp"
+        "${CMAKE_SOURCE_DIR}/core/libs/native/NativeAotThreads.cpp")
+    target_link_libraries(native_aot_thread_boundary_tests PRIVATE anyps5_native_image)
+    add_test(NAME native_aot_thread_boundary COMMAND native_aot_thread_boundary_tests)
+    set_tests_properties(native_aot_thread_boundary PROPERTIES TIMEOUT 30)
+    add_test_executable(native_aot_bundle_tests "${CMAKE_SOURCE_DIR}/core/libs/tests/NativeAotBundle.cpp")
+    target_link_libraries(native_aot_bundle_tests PRIVATE anyps5_native_image)
+    add_test(NAME native_aot_bundle COMMAND native_aot_bundle_tests)
+    set_tests_properties(native_aot_bundle PROPERTIES TIMEOUT 30)
     add_test_executable(native_aot_graphics_layout_tests "${CMAKE_SOURCE_DIR}/core/libs/tests/NativeAotGraphicsLayouts.cpp")
     target_include_directories(native_aot_graphics_layout_tests PRIVATE "${CMAKE_SOURCE_DIR}/core/libs")
     add_test(NAME native_aot_graphics_layouts COMMAND native_aot_graphics_layout_tests)
@@ -63,7 +77,11 @@ if(BUILD_TESTING)
     if(APPLE)
         file(GLOB testSources CONFIGURE_DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/tests/test_*.py")
     else()
-        set(testSources "${CMAKE_CURRENT_SOURCE_DIR}/tests/test_portable.py")
+        set(testSources "${CMAKE_CURRENT_SOURCE_DIR}/tests/test_portable.py"
+            "${CMAKE_CURRENT_SOURCE_DIR}/tests/test_contract_recipe.py"
+            "${CMAKE_CURRENT_SOURCE_DIR}/tests/test_provider_catalog.py"
+            "${CMAKE_CURRENT_SOURCE_DIR}/tests/test_debug_candidates.py"
+            "${CMAKE_CURRENT_SOURCE_DIR}/tests/test_load_facts.py")
     endif()
     foreach(testSource IN LISTS testSources)
         get_filename_component(suite "${testSource}" NAME_WE)
@@ -152,6 +170,20 @@ if(ANYPS5_NATIVE_AOT_EXAMPLE)
         if(BUILD_TESTING)
             add_test(NAME native_aot_hello_notify_compile COMMAND ${aotExampleCommand} --compile-only)
             set_tests_properties(native_aot_hello_notify_compile PROPERTIES TIMEOUT 30)
+        endif()
+    endif()
+    if(APPLE)
+        set(padCompileCommand ${CMAKE_COMMAND} -E env "LIBCAPSTONE_PATH=$<TARGET_FILE_DIR:capstone_shared>"
+            "PYTHONPATH=${aotPythonPath}" ${Python3_EXECUTABLE} "${CMAKE_CURRENT_SOURCE_DIR}/examples/pad_input/build.py"
+            --sdk "${CMAKE_SOURCE_DIR}/3rdparty/ps5link-sdk" --linker $<TARGET_FILE:aot_ps5link>
+            --output-parent "${CMAKE_CURRENT_BINARY_DIR}/pad-compile-runs")
+        add_custom_target(native_aot_pad_input_compile COMMAND ${padCompileCommand}
+            DEPENDS aot_ps5link capstone_shared USES_TERMINAL)
+        if(BUILD_TESTING)
+            add_test(NAME native_aot_pad_input_compile COMMAND ${padCompileCommand})
+            add_test(NAME native_aot_pad_input_optimized_compile COMMAND ${padCompileCommand} --optimization O2)
+            set_tests_properties(native_aot_pad_input_optimized_compile PROPERTIES TIMEOUT 30)
+            set_tests_properties(native_aot_pad_input_compile PROPERTIES TIMEOUT 30)
         endif()
     endif()
 endif()

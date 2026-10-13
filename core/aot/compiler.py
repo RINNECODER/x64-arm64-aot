@@ -1,3 +1,4 @@
+from elf_segments import runtime_segments
 import argparse
 import hashlib
 import io
@@ -22,13 +23,17 @@ import system
 import effects
 import loop_ranges
 import native_image
+import module_lifecycle
+import module_tls
 import checked_stack
+import finite_tables
 import immutable_data
 import stack_values
 import pointer_outputs
 import parameter_pointers
 import frame_exclusion
 import checked_pointers
+import register_values
 import register_aliases
 from dynamic import parse_dynamic, DynamicError
 from calls import validate_indirect_calls, CallError
@@ -83,6 +88,9 @@ class Image:
         self.target = target
         self.target_spec = target_spec(target)
         self.contracts = contracts
+        self.namespace = contracts.get('native_namespace', '')
+        require(isinstance(self.namespace, str) and (not self.namespace or re.fullmatch(r'[A-Za-z_][A-Za-z_0-9]*_', self.namespace)), 'invalid native namespace')
+        require(type(contracts.get('module_image', False)) is bool, 'module_image must be boolean')
         self.bytes = Path(path).read_bytes()
         require(contracts.get('schema') == 1, 'unsupported contract schema')
         require(type(contracts.get('guard_diagnostics', False)) is bool, 'guard_diagnostics must be a boolean')
@@ -90,9 +98,13 @@ class Image:
         require(hashlib.sha256(self.bytes).hexdigest() == contracts['sha256'], 'input hash does not match contracts')
         self.elf = ELFFile(io.BytesIO(self.bytes))
         require(self.elf.elfclass == 64 and self.elf.little_endian and self.elf['e_machine'] == 'EM_X86_64', 'expected little-endian x86-64 ELF')
+        try:
+            self.tls_layout = module_tls.layout(self.elf, self.bytes, contracts)
+        except ValueError as error:
+            raise Rejected(str(error)) from error
         self.segments = []
         self.process_parameters = []
-        for segment in self.elf.iter_segments():
+        for segment in runtime_segments(self.elf):
             if segment['p_type'] == 0x61000001:
                 self.process_parameters.append((segment['p_vaddr'], segment['p_filesz']))
                 # The SCE process-parameter segment is not PT_LOAD but the runtime must map it and
@@ -101,7 +113,7 @@ class Image:
                     self.segments.append(segment)
                 continue
             if segment['p_type'] == 'PT_TLS':
-                require(segment['p_memsz'] == 0 or contracts.get('allow_unlowered_tls', False),
+                require(segment['p_memsz'] == 0 or contracts.get('allow_unlowered_tls', False) or self.tls_layout is not None,
                         'TLS requires native TLS lowering')
             if segment['p_type'] != 'PT_LOAD':
                 continue
@@ -132,7 +144,7 @@ class Image:
         ordered = sorted(self.functions.values(), key=lambda f: f['address'])
         for left, right in zip(ordered, ordered[1:]):
             require(left['address'] + left['size'] <= right['address'], 'overlapping function contracts')
-        require(self.elf['e_entry'] in self.functions, 'entry function has no contract')
+        require(self.elf['e_entry'] in self.functions or (contracts.get('module_image') and self.elf['e_entry'] == 0), 'entry function has no contract')
         self.imports = contracts['imports']
         self.data_bindings = contracts.get('data_bindings', {})
         # guest_data: the title's data segments are not emitted as IR bytes; the image
@@ -157,6 +169,8 @@ class Image:
             self.data.append(spec)
         self.import_slots = {}
         self.data_import_slots = {}
+        self.data_imports = contracts.get('data_imports', {})
+        require(isinstance(self.data_imports, dict), 'data_imports must be a mapping')
         self.relocations = []
         try:
             self.dynamic = parse_dynamic(self.elf, self.read)
@@ -165,24 +179,48 @@ class Image:
         tags = self.dynamic['tags']
         self.needed = self.dynamic['needed']
         lifecycle = contracts.get('lifecycle', {})
-        for tag, field in (('DT_INIT', 'init'), ('DT_FINI', 'fini')):
-            address = tags.get(tag, 0)
-            if address:
-                require(lifecycle.get('owner') == 'entry' and lifecycle.get(field) == address,
-                        'nonzero INIT/FINI requires an explicit entry lifecycle contract')
-                require(address in self.functions and signature(self.functions[address]) == ('void', []),
-                        'lifecycle function lacks a native void() contract')
-        require(tags.get('DT_INIT_ARRAYSZ', 0) == 0 and tags.get('DT_FINI_ARRAYSZ', 0) == 0 and tags.get('DT_PREINIT_ARRAYSZ', 0) == 0,
-                'initializer arrays require native lifecycle lowering')
+        if lifecycle.get('owner') != 'bundle':
+            for tag, field in (('DT_INIT', 'init'), ('DT_FINI', 'fini')):
+                address = tags.get(tag, 0)
+                if address:
+                    require(lifecycle.get('owner') == 'entry' and lifecycle.get(field) == address,
+                            'nonzero INIT/FINI requires an explicit entry lifecycle contract')
+                    require(address in self.functions and signature(self.functions[address]) == ('void', []),
+                            'lifecycle function lacks a native void() contract')
+            require(tags.get('DT_INIT_ARRAYSZ', 0) == 0 and tags.get('DT_FINI_ARRAYSZ', 0) == 0 and tags.get('DT_PREINIT_ARRAYSZ', 0) == 0,
+                    'initializer arrays require native lifecycle lowering')
         referenced_imports = set()
         referenced_data = set()
         for relocation in self.dynamic['relocations']:
             slot, kind, index, addend = (relocation[key] for key in ('slot', 'kind', 'symbol_index', 'addend'))
-            if kind == 0:
+            if kind in (0, 16, 17, 18):
                 continue
             if kind in (6, 7):
                 require(addend == 0, 'function import relocation has a nonzero addend')
                 symbol = self.dynamic['symbols'][index]
+                if contracts.get('module_image') and symbol['section'] != 0 and symbol['info'] & 15 == 1:
+                    require(symbol['info'] >> 4 == 1 and symbol['other'] in (0, 2, 3) and symbol['size'] > 0,
+                            'local data relocation needs a strong bounded object')
+                    self.pointer(symbol['value'], symbol['size'])
+                    self.relocations.append((slot, symbol['value']))
+                    continue
+                if contracts.get('module_image') and symbol['section'] != 0 and symbol['info'] & 15 == 2:
+                    require(symbol['info'] >> 4 == 1 and symbol['other'] in (0, 2, 3), 'local function binding must be strong')
+                    require(symbol['value'] in self.functions, 'local function relocation lacks a qualified ABI')
+                    self.import_slots[slot] = self.functions[symbol['value']]
+                    continue
+                if symbol['info'] & 15 == 1 and symbol['name'] in self.data_imports:
+                    name = symbol['name']
+                    require(name in self.data_imports, 'data import requires a separate native binding')
+                    binding = self.data_imports[name]
+                    require(set(binding) == {'name', 'size', 'evidence'} and re.fullmatch(r'[A-Za-z_][A-Za-z_0-9]*', binding['name'])
+                            and type(binding['size']) is int and 0 < binding['size'] <= 64 * 1024 * 1024
+                            and isinstance(binding['evidence'], str) and binding['evidence'].strip(), 'invalid native data binding')
+                    require(symbol['info'] >> 4 == 1 and symbol['other'] == 0, 'data binding requires a strong default-visible symbol')
+                    require(symbol['size'] in (0, binding['size']), 'data binding size differs from ELF symbol')
+                    self.data_import_slots[slot] = binding
+                    referenced_data.add(name)
+                    continue
                 name = symbol['name']
                 if symbol['info'] & 15 == 1:
                     require(name in self.data_bindings, f'missing data binding: {name}')
@@ -206,15 +244,28 @@ class Image:
         expected = {tuple(pair) for pair in contracts['pointer_relocations']}
         require(set(self.relocations) == expected and len(expected) == len(self.relocations), 'pointer relocation contracts do not match the image')
         require(referenced_imports == set(self.imports), 'unused import contracts')
-        require(referenced_data == set(self.data_bindings), 'unused data bindings')
+        require(referenced_data == set(self.data_bindings) | set(self.data_imports), 'unused data bindings')
+        try:
+            self.module_lifecycle = module_lifecycle.describe(self) if lifecycle.get('owner') == 'bundle' else {}
+        except ValueError as error:
+            raise Rejected(str(error)) from error
+        try:
+            module_tls.relocations(self)
+        except ValueError as error:
+            raise Rejected(str(error)) from error
         self.decoder = Cs(CS_ARCH_X86, CS_MODE_64)
         self.decoder.detail = True
+        try:
+            self.finite_tables, self.jump_labels = finite_tables.discover(self)
+        except ValueError as error:
+            raise Rejected(str(error)) from error
         self.call_contracts = {}
         self.memory_effects = {}
         self.pointer_output_summaries = {}
         self.provider_requirements = {}
         try:
             immutable_data.configure(self)
+            module_tls.validate_indexes(self)
         except ValueError as error:
             raise Rejected(str(error)) from error
 
@@ -234,13 +285,15 @@ class Image:
         return self.bytes[begin:begin + available] + bytes(size - available)
 
     def pointer(self, address, size=1):
+        if address in getattr(self, 'jump_labels', {}) and size == 1:
+            return f'blockaddress(@{self.jump_labels[address]}, %b{address:x})'
         if address in self.functions and size == 1:
             return '@' + self.functions[address]['name']
         for spec in self.data:
             if spec['address'] <= address and address + size <= spec['address'] + spec['size']:
                 if self.guest_data:
                     return f'inttoptr (i64 {self.guest_base + address} to ptr)'
-                return f"getelementptr (i8, ptr @data_{spec['address']:x}, i64 {address - spec['address']})"
+                return f"getelementptr (i8, ptr @{self.namespace}data_{spec['address']:x}, i64 {address - spec['address']})"
         if self.guest_data and any(spec['p_vaddr'] <= address and address + size <= spec['p_vaddr'] + spec['p_filesz']
                                    for spec in self.segments):
             # Any other mapped segment (the SCE process-parameter segment).
@@ -263,6 +316,12 @@ class Image:
         if address not in self.call_contracts:
             try:
                 self.call_contracts[address] = validate_indirect_calls(self, owner)
+                for site, descriptor in self.finite_tables.items():
+                    if address <= site < address + owner['size'] and descriptor['kind'] == 'call':
+                        require(site not in self.call_contracts[address], 'derived finite call conflicts with a supplied annotation')
+                        self.call_contracts[address][site] = {'contract': descriptor['contract'], 'kind': 'operand',
+                            'targets': [self.functions[target]['name'] for target in descriptor['targets']],
+                            'target_addresses': descriptor['targets'], 'qualification': descriptor['qualification']}
             except CallError as error:
                 # A whole-title build (dispatch enabled) falls back to the runtime dispatch table
                 # for an indirect branch whose annotated target set names an address we cannot
@@ -354,6 +413,8 @@ class Function:
             next_address = address + ins.size
             if ins.mnemonic in ('ret', 'ud2'):
                 successors = []
+            elif ins.mnemonic == 'jmp' and address in self.image.finite_tables:
+                successors = self.image.finite_tables[address]['targets']
             elif ins.mnemonic == 'jmp':
                 operand = ins.operands[0]
                 if operand.type == X86_OP_IMM and start <= operand.imm < end:
@@ -587,6 +648,9 @@ class Function:
             return state
         if ins.address in self.dispatch_jumps:
             return state
+        if op == 'jmp' and ins.address in self.image.finite_tables:
+            self.read_operand(ins, state, args[0])
+            return state
         if ins.address in self.tail_calls:
             self.check_tail_call(ins, state)
             return state
@@ -601,13 +665,19 @@ class Function:
                 state['flags'] = set()
                 return state
             callee, slot = self.image.call(ins, self.contract)
+            if callee.get('tls_resolver'):
+                pointer = effects.argument_pointer(self, ins, callee, 0, original)
+                if pointer is None or pointer[0] != 'image' or pointer[2] not in self.image.tls_indexes:
+                    self.fail(ins, 'TLS resolver argument is not a qualified immutable index')
             if not effects.required_bindings(self, ins) <= state['import_bindings']:
                 self.fail(ins, 'native callee requires original provider bindings')
             if slot == 'operand':
                 self.read_operand(ins, state, args[0])
-                if not self.uniform and (args[0].type == X86_OP_REG or self.memory_origin(ins, state, args[0]) is not None) and not self.pointer_operand(ins, state, args[0]):
+                if ins.address in self.image.finite_tables:
+                    pass
+                elif not self.uniform and (args[0].type == X86_OP_REG or self.memory_origin(ins, state, args[0]) is not None) and not self.pointer_operand(ins, state, args[0]):
                     self.fail(ins, 'indirect call target has no proven native pointer origin')
-                if not self.uniform and args[0].type == X86_OP_MEM and self.memory_origin(ins, state, args[0]) is None:
+                if ins.address not in self.image.finite_tables and not self.uniform and args[0].type == X86_OP_MEM and self.memory_origin(ins, state, args[0]) is None:
                     base, index = ins.reg_name(args[0].mem.base), ins.reg_name(args[0].mem.index)
                     provenance = state['pointers'].get(base)
                     if not provenance or provenance[0] != 'parameter' or index in state['native_pointers']:
@@ -663,8 +733,9 @@ class Function:
         if op in ('mov', 'movabs', 'movzx', 'movsx', 'movsxd', 'lea'):
             if op == 'lea' and args[1].type != X86_OP_MEM:
                 self.fail(ins, 'invalid address expression')
-            self.read_operand(ins, state, args[1])
-            self.define(ins, state, args[0])
+            if not register_values.transport(self, ins, original, state):
+                self.read_operand(ins, state, args[1])
+                self.define(ins, state, args[0])
             if args[0].type == X86_OP_REG:
                 dest = self.reg(ins, args[0])[0]
                 if op in ('mov', 'movabs'):
@@ -954,7 +1025,7 @@ class Function:
                    'native_pointers': {'rsp'} | set(pointers),
                    'stack_pointers': {loc['offset'] for loc in self.argument_locations if loc['kind'] == 'stack' and loc['type'] == 'ptr'},
                    'stack_origins': {loc['offset']: ('parameter', index, 0) for index, loc in enumerate(self.argument_locations) if loc['kind'] == 'stack' and loc['type'] == 'ptr'},
-                   'image_pointers': set(self.image.import_slots) | {slot for slot, _ in self.image.relocations},
+                   'image_pointers': set(self.image.import_slots) | set(self.image.data_import_slots) | {slot for slot, _ in self.image.relocations},
                    'register_aliases': frozenset(), 'stack_values': {}, 'pending_outputs': frozenset(), 'parameter_pointers': {}, 'zero_vectors': set(),
                    'import_bindings': set(self.image.import_slots), 'callback_memory_unmodified': True}
         entry = self.contract['address']
@@ -1288,7 +1359,12 @@ class Function:
         self.uniform_store_registers('%rf_out')
         self.uniform_stack_out('%rf_out', state['rsp'])
         if slot == 'operand':
-            target = self.emit(f'inttoptr i64 {self.read(ins, ins.operands[0], 64)} to ptr')
+            if ins.address in self.image.finite_tables:
+                target = finite_tables.emit_target(self, ins, self.image.finite_tables[ins.address])
+            else:
+                target = self.emit(f'inttoptr i64 {self.read(ins, ins.operands[0], 64)} to ptr')
+            if ins.address in self.image.annotated_calls(self.contract):
+                finite_tables.emit_membership(self, ins, target, ['@' + name for name in self.image.annotated_calls(self.contract)[ins.address]['targets']])
         else:
             target = '@' + callee['name']
         self.lines.append(f'  call void {target}(ptr %rf_out)')
@@ -1423,7 +1499,13 @@ class Function:
                         arguments.append(f"{abi.parameter_type(loc['type'])} {value}")
                         native_arguments.append(value)
                     if slot == 'operand':
-                        target = self.emit(f'inttoptr i64 {self.read(ins, args[0], 64)} to ptr')
+                        if address in self.image.finite_tables:
+                            target = finite_tables.emit_target(self, ins, self.image.finite_tables[address])
+                        else:
+                            target = self.emit(f'inttoptr i64 {self.read(ins, args[0], 64)} to ptr')
+                        if address in self.image.annotated_calls(self.contract):
+                            names = self.image.annotated_calls(self.contract)[address]['targets']
+                            finite_tables.emit_membership(self, ins, target, ['@' + name for name in names])
                     else:
                         target = '@' + callee['name'] if slot is None else self.emit(f'load ptr, ptr {self.image.pointer(slot, 8)}, align 1')
                     expression = f"call {abi.result_type(callee['result'])} {target}({', '.join(arguments)})"
@@ -1466,6 +1548,14 @@ class Function:
                     value = self.load(abi.return_register(result), abi.bits(result))
                     value = self.native_value(result, value)
                     self.lines.append(f'  ret {abi.llvm_type(result)} {value}')
+                terminal = True
+            elif op == 'jmp' and address in self.image.finite_tables:
+                descriptor = self.image.finite_tables[address]
+                target = finite_tables.emit_target(self, ins, descriptor)
+                targets = list(dict.fromkeys(descriptor['targets']))
+                finite_tables.emit_membership(self, ins, target, [self.image.pointer(value) for value in targets])
+                labels = ', '.join(f'label %b{value:x}' for value in targets)
+                self.lines.append(f'  indirectbr ptr {target}, [{labels}]')
                 terminal = True
             elif op.startswith('j'):
                 target = args[0].imm
@@ -1576,6 +1666,7 @@ def compile_image(image):
         lines.append('declare void @NativeAotRegisterEntryCounts_nid_no_patch(ptr, i64, ptr)')
         for index, spec in enumerate(ordered):
             spec['entry_index'] = index
+    lines.extend(module_tls.declarations(image))
     if image.contracts.get('guard_diagnostics', False):
         lines.append('declare void @NativeAotReportGuardFailure_nid_no_patch(i64, i32)')
     if any(f.checked_pointer_loads or f.checked_pointer_arguments or f.checked_pointer_bases for f in functions):
@@ -1598,6 +1689,10 @@ def compile_image(image):
         else:
             suffix = ' noreturn' if contract.get('noreturn') else ''
             lines.append(f"declare {abi.result_type(result)} @{contract['name']}({argument_types}){suffix}")
+    for binding in image.data_imports.values():
+        require(binding['name'] not in names, 'duplicate native data symbol')
+        names.add(binding['name'])
+        lines.append(f"@{binding['name']} = external global [{binding['size']} x i8]")
     if image.guest_data:
         require(not image.immutable_regions, 'guest data cannot also declare immutable regions')
         segments = ', '.join(f"{{ i64, i64, i64, i64, i64 }} {{ i64 {image.guest_base + spec['p_vaddr']}, i64 {spec['p_offset']}, i64 {spec['p_filesz']}, i64 {spec['p_memsz']}, i64 {spec['p_flags']} }}" for spec in image.segments)
@@ -1612,7 +1707,7 @@ def compile_image(image):
         raw = image.read(spec['address'], spec['size'])
         value = ''.join(f'\\{byte:02X}' for byte in raw)
         writable = image.segment(spec['address'])['p_flags'] & 2 or any(spec['address'] <= slot < spec['address'] + spec['size'] for slot in [*image.import_slots, *(slot for slot, _ in image.relocations)])
-        lines.append(f"@data_{spec['address']:x} = {'global' if writable else 'constant'} [{len(raw)} x i8] c\"{value}\", align 16")
+        lines.append(f"@{image.namespace}data_{spec['address']:x} = {'global' if writable else 'constant'} [{len(raw)} x i8] c\"{value}\", align 16")
     for name, binding in image.data_bindings.items():
         lines.append(f"@{binding['name']} = global [{binding['size']} x i8] zeroinitializer, align 16")
     if descriptor is not None:
@@ -1620,7 +1715,7 @@ def compile_image(image):
     if image.immutable_regions:
         lines.extend(immutable_data.declarations(image))
     unresolved_relocations = []
-    if image.relocations or image.import_slots or image.data_import_slots or descriptor is not None or image.immutable_regions or dispatch_enabled:
+    if image.tls_layout or image.relocations or image.import_slots or image.data_import_slots or descriptor is not None or image.immutable_regions or dispatch_enabled:
         lines.extend(['@llvm.global_ctors = appending global [1 x { i32, ptr, ptr }] [{ i32, ptr, ptr } { i32 101, ptr @native_image_init, ptr null }]',
                       'define internal void @native_image_init() {'])
         if image.guest_data:
@@ -1648,6 +1743,8 @@ def compile_image(image):
             lines.append(f'  call void @NativeAotRegisterDispatch_nid_no_patch(ptr @__aps5_aot_dispatch, i64 {len(dispatch_entries)})')
         if image.contracts.get('count_entries'):
             lines.append(f'  call void @NativeAotRegisterEntryCounts_nid_no_patch(ptr @__aps5_aot_counts, i64 {len(image.functions)}, ptr @__aps5_aot_count_addresses)')
+        if image.tls_layout:
+            lines.append(f"  call void @{module_tls.REGISTER}(ptr @{image.tls_layout['name']})")
         if image.immutable_regions:
             lines.append(f'  call void @NativeAotRequireReadOnly_nid_no_patch(ptr @__aps5_aot_readonly_ranges, i64 {len(image.immutable_regions)})')
         if descriptor is not None:
@@ -1690,8 +1787,11 @@ def compile_image(image):
               'unimplemented_functions': len(stubs),
               'unresolved_relocations': unresolved_relocations,
               'unimplemented_reasons': _reason_histogram(stubs),
+              'tls': image.tls_layout, 'tls_indexes': sorted(image.tls_indexes),
+              'module_lifecycle': image.module_lifecycle,
+              'finite_tables': list(image.finite_tables.values()),
               'indirect_calls': [site for sites in image.call_contracts.values() for site in sites.values()],
-              'limitations': ['declared function boundaries and ABIs', 'declared scalar, SSE and AVX instruction subsets', 'no guest exception, TLS or computed-jump target recovery', 'indirect call target sets are declared, not inferred',
+              'limitations': ['declared function boundaries and ABIs', 'declared scalar, SSE and AVX instruction subsets', 'no guest exception or TLS recovery', 'computed jumps limited to immutable absolute relocation tables', 'other indirect call target sets remain declared with runtime membership checks',
                               'no game compatibility or performance qualification']}
     return '\n\n'.join(lines) + '\n', report
 

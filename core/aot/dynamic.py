@@ -1,3 +1,4 @@
+from elf_segments import runtime_segments
 import struct
 
 from elftools.elf.enums import ENUM_D_TAG
@@ -29,7 +30,7 @@ def range_fits(offset, size, limit):
     return 0 <= offset <= limit and 0 <= size <= limit - offset
 
 
-def parse_dynamic(elf, read_mapped_address):
+def parse_dynamic(elf, read_mapped_address, include_exports=False):
     require(elf.elfclass == 64 and elf.little_endian and elf['e_machine'] == 'EM_X86_64',
             'dynamic parsing requires little-endian x86-64 ELF')
     stream = elf.stream
@@ -39,7 +40,7 @@ def parse_dynamic(elf, read_mapped_address):
     stream.seek(position)
     require(elf['e_phentsize'] == 56 and 0 < elf['e_phnum'] < 0xffff, 'invalid program header count or size')
     require(range_fits(elf['e_phoff'], elf['e_phnum'] * 56, file_size), 'truncated program header table')
-    segments = list(elf.iter_segments())
+    segments = runtime_segments(elf)
     loads = [segment for segment in segments if segment['p_type'] == 'PT_LOAD']
     dynamic_segments = [segment for segment in segments if segment['p_type'] == 'PT_DYNAMIC']
     sce_segments = [segment for segment in segments if segment['p_type'] == PT_SCE_DYNLIBDATA]
@@ -147,6 +148,19 @@ def parse_dynamic(elf, read_mapped_address):
         hash_words = words[buckets:]
         require(hash_words[0] == 0, 'invalid null SysV hash chain')
         counts.append(chains)
+    if 0x6ffffef5 in values:
+        address = values[0x6ffffef5]
+        buckets, offset, bloom, _ = struct.unpack('<IIII', read_mapped(address, 16))
+        require(buckets > 0 and bloom > 0 and offset > 0, 'invalid GNU hash dimensions')
+        buckets_at = address + 16 + bloom * 8
+        words = struct.unpack(f'<{buckets}I', read_mapped(buckets_at, buckets * 4))
+        require(all(word == 0 or word >= offset for word in words), 'GNU hash bucket below symbol offset')
+        index = max(words)
+        if index:
+            chain = buckets_at + buckets * 4
+            while not struct.unpack('<I', read_mapped(chain + (index - offset) * 4, 4))[0] & 1:
+                index += 1
+        counts.append(index + 1 if index else offset)
     if not counts:
         require(elf['e_shnum'] > 0 and elf['e_shentsize'] == 64,
                 'missing bounded dynamic symbol count')
@@ -224,4 +238,20 @@ def parse_dynamic(elf, read_mapped_address):
             tags[TAG_NAMES[standard]] = values[sce]
     needed = [string(value) for tag, value in raw_tags if tag == 1]
     require(all(needed), 'empty needed module name')
-    return {'tags': tags, 'raw_tags': raw_tags, 'symbols': symbols, 'relocations': relocations, 'needed': needed}
+    identities = {}
+    identity_tags = [('libraries', (0x61000049,)), ('modules', (0x61000045,))]
+    if include_exports:
+        identity_tags += [('export_libraries', (0x61000013, 0x61000047)), ('export_modules', (0x6100000d, 0x61000043))]
+    for label, selected_tags in identity_tags:
+        records = {}
+        for tag, value in raw_tags:
+            if tag not in selected_tags:
+                continue
+            index = value >> 48
+            require(index not in records, f'duplicate imported {label} identity')
+            name = string(value & 0xffffffff)
+            require(bool(name), f'empty imported {label} name')
+            records[index] = {'name': name, 'version': (value >> 32) & 0xffff}
+        identities[label] = records
+    return {'tags': tags, 'raw_tags': raw_tags, 'symbols': symbols, 'relocations': relocations,
+            'needed': needed, 'identities': identities, 'soname': string(values[14]) if 14 in values else None}

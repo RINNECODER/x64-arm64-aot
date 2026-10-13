@@ -1,0 +1,108 @@
+{
+  "schema": "anyps5.aot.import-catalog.v1",
+  "abi": "x86_64-linux-gnu glibc 2.28 dynamic imports",
+  "functions": {
+    "abort": {
+      "noreturn": true,
+      "evidence": {
+        "kind": "header",
+        "path": "zig-0.14.1/lib/libc/include/generic-glibc/stdlib.h",
+        "excerpt": "extern void abort (void) __THROW __attribute__ ((__noreturn__)) __COLD;"
+      }
+    },
+    "exit": {
+      "noreturn": true,
+      "evidence": {
+        "kind": "header",
+        "path": "zig-0.14.1/lib/libc/include/generic-glibc/stdlib.h",
+        "excerpt": "extern void exit (int __status) __THROW __attribute__ ((__noreturn__));"
+      }
+    },
+    "quick_exit": {
+      "noreturn": true,
+      "evidence": {
+        "kind": "header",
+        "path": "zig-0.14.1/lib/libc/include/generic-glibc/stdlib.h",
+        "excerpt": "extern void quick_exit (int __status) __THROW __attribute__ ((__noreturn__));"
+      }
+    },
+    "_Exit": {
+      "noreturn": true,
+      "evidence": {
+        "kind": "header",
+        "path": "zig-0.14.1/lib/libc/include/generic-glibc/stdlib.h",
+        "excerpt": "extern void _Exit (int __status) __THROW __attribute__ ((__noreturn__));"
+      }
+    },
+    "_exit": {
+      "noreturn": true,
+      "evidence": {
+        "kind": "header",
+        "path": "zig-0.14.1/lib/libc/include/generic-glibc/unistd.h",
+        "excerpt": "extern void _exit (int __status) __attribute__ ((__noreturn__));"
+      }
+    },
+    "longjmp": {
+      "noreturn": true,
+      "evidence": {
+        "kind": "header",
+        "path": "zig-0.14.1/lib/libc/include/generic-glibc/setjmp.h",
+        "excerpt": "extern void longjmp (struct __jmp_buf_tag __env[1], int __val)\n     __THROWNL __attribute__ ((__noreturn__));"
+      }
+    },
+    "_longjmp": {
+      "noreturn": true,
+      "evidence": {
+        "kind": "header",
+        "path": "zig-0.14.1/lib/libc/include/generic-glibc/setjmp.h",
+        "excerpt": "extern void _longjmp (struct __jmp_buf_tag __env[1], int __val)\n     __THROWNL __attribute__ ((__noreturn__));"
+      }
+    },
+    "siglongjmp": {
+      "noreturn": true,
+      "evidence": {
+        "kind": "header",
+        "path": "zig-0.14.1/lib/libc/include/generic-glibc/setjmp.h",
+        "excerpt": "extern void siglongjmp (sigjmp_buf __env, int __val)\n     __THROWNL __attribute__ ((__noreturn__));"
+      }
+    },
+    "__assert_fail": {
+      "noreturn": true,
+      "evidence": {
+        "kind": "header",
+        "path": "zig-0.14.1/lib/libc/include/generic-glibc/assert.h",
+        "excerpt": "extern void __assert_fail (const char *__assertion, const char *__file,\n\t\t\t   unsigned int __line, const char *__function)\n     __THROW __attribute__ ((__noreturn__)) __COLD;"
+      }
+    },
+    "__assert_perror_fail": {
+      "noreturn": true,
+      "evidence": {
+        "kind": "header",
+        "path": "zig-0.14.1/lib/libc/include/generic-glibc/assert.h",
+        "excerpt": "extern void __assert_perror_fail (int __errnum, const char *__file,\n\t\t\t\t  unsigned int __line, const char *__function)\n     __THROW __attribute__ ((__noreturn__)) __COLD;"
+      }
+    },
+    "pthread_exit": {
+      "noreturn": true,
+      "evidence": {
+        "kind": "header",
+        "path": "zig-0.14.1/lib/libc/include/generic-glibc/pthread.h",
+        "excerpt": "extern void pthread_exit (void *__retval) __attribute__ ((__noreturn__));"
+      }
+    },
+    "__libc_start_main": {
+      "noreturn": true,
+      "evidence": {
+        "kind": "specification",
+        "reference": "LSB Core Specification 5.0, Generic part, __libc_start_main: \"__libc_start_main() ... shall not return\""
+      }
+    },
+    "__stack_chk_fail": {
+      "noreturn": true,
+      "evidence": {
+        "kind": "specification",
+        "reference": "LSB Core Specification 5.0, Generic part, __stack_chk_fail: \"terminate a function in case of stack overflow ... shall not return\""
+      }
+    }
+  }
+}

@@ -9,6 +9,7 @@ import tempfile
 from pathlib import Path
 
 from compiler import Image, compile_image
+from contract_recipe import materialize
 from capstone import Cs, CS_ARCH_X86, CS_MODE_64
 from recover import object_mappings
 from toolchain import build_native_object
@@ -73,7 +74,8 @@ def build(sdk, folder):
     run(['xcrun', 'clang', '-std=c11', '-O2', '-I', sdk / 'linker', *[sdk / 'linker' / v for v in sources],
          'catalog.c', '-o', 'ps5link'], folder)
     (folder / 'link.log').write_text(run([folder / 'ps5link', 'app.elf', 'crt1.o', 'main.o'], folder))
-    contracts = json.loads((HERE / 'contracts.json').read_text())
+    recipe = json.loads((HERE / 'contract-recipe.json').read_text())
+    contracts, derivation = materialize(folder / 'app.elf', recipe, HERE.parents[3])
     require(digest(folder / 'app.elf') == contracts['sha256'],
         'compiler output differs from the qualified image; regenerate and review contracts before native execution')
     verify_contract_sources(contracts, HERE.parents[3])
@@ -88,6 +90,7 @@ def build(sdk, folder):
     ir, report = compile_image(image)
     (folder / 'module.ll').write_text(ir)
     report['native_object'] = build_native_object(ir, folder / 'module.o')
+    report['contract_derivation'] = derivation
     run(['xcrun', 'clang', '-arch', 'arm64', '-O3', '-ffp-contract=on', '-fno-fast-math',
          '-Dmain=guest_source_main', '-I', folder, '-S', '-emit-llvm', 'main-current-abi.c', '-o', 'reference-source.ll'], folder)
     reference, separated = separate_multiply_add((folder / 'reference-source.ll').read_text())

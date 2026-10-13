@@ -13,7 +13,7 @@ BASE = 0x400000
 
 
 class Fixture:
-    def __init__(self, sce=False, hash_table=True, sections=False):
+    def __init__(self, sce=False, hash_table=True, sections=False, gnu_chain=(0, 1)):
         self.sce = sce
         self.raw = bytearray(0x1000)
         struct.pack_into('<16sHHIQQQIHHHHHH', self.raw, 0, b'\x7fELF\x02\x01\x01' + bytes(9),
@@ -38,6 +38,7 @@ class Fixture:
             self.tags.append((SCE_SYMBOL_SIZE, 72))
         elif hash_table:
             self.tags.append((4, BASE + 0x800))
+        struct.pack_into(f'<4IQI{len(gnu_chain)}I', self.raw, 0xa00, 1, 1, 1, 0, (1 << 64) - 1, 1, *gnu_chain)
         if sections:
             names = b'\0.dynsym\0.dynstr\0.shstrtab\0'
             self.raw[0xb00:0xb00 + len(names)] = names
@@ -68,12 +69,38 @@ class Fixture:
 
 
 class DynamicTests(unittest.TestCase):
+    def test_runtime_tables_do_not_depend_on_section_strings(self):
+        fixture = Fixture(sce=True)
+        original = fixture.parse()
+        struct.pack_into('<Q', fixture.raw, 40, len(fixture.raw) + 4096)
+        struct.pack_into('<HHH', fixture.raw, 58, 64, 38, 35)
+        parsed = fixture.parse()
+        self.assertEqual(parsed, original)
+
+    def test_missing_runtime_symbol_count_still_rejects_truncated_sections(self):
+        fixture = Fixture(hash_table=False, sections=True)
+        struct.pack_into('<Q', fixture.raw, 40, len(fixture.raw) + 4096)
+        with self.assertRaisesRegex(DynamicError, 'truncated section table'):
+            fixture.parse()
+
     def test_sectionless_sysv_tables(self):
         result = Fixture().parse()
         self.assertEqual(result['needed'], ['libdemo.prx'])
         self.assertEqual([symbol['name'] for symbol in result['symbols']], ['', 'foo', 'bar'])
         self.assertEqual([row['kind'] for row in result['relocations']], [6, 6, 8, 7])
         self.assertEqual([row['plt'] for row in result['relocations']], [False, False, False, True])
+
+    def test_opt_in_sce_export_identity_tables(self):
+        fixture = Fixture(sce=True)
+        fixture.tags.extend([(0x61000047, 13 | (2 << 32) | (4 << 48)), (0x61000043, 17 | (3 << 32) | (5 << 48))])
+        elf = fixture.elf()
+        read = lambda address, size: bytes(fixture.raw[address - BASE:address - BASE + size])
+        result = parse_dynamic(elf, read, include_exports=True)
+        self.assertEqual(result['identities']['export_libraries'][4], {'name': 'foo', 'version': 2})
+        self.assertEqual(result['identities']['export_modules'][5], {'name': 'bar', 'version': 3})
+        fixture.tags.append((0x6100000d, 17 | (4 << 32) | (5 << 48)))
+        with self.assertRaisesRegex(DynamicError, 'duplicate'):
+            parse_dynamic(fixture.elf(), read, include_exports=True)
 
     def test_object_import_type_is_preserved(self):
         result = Fixture().parse()
@@ -91,6 +118,25 @@ class DynamicTests(unittest.TestCase):
     def test_validated_section_count_fallback(self):
         result = Fixture(hash_table=False, sections=True).parse()
         self.assertEqual(len(result['symbols']), 3)
+
+    def test_sectionless_gnu_hash_count(self):
+        fixture = Fixture(hash_table=False)
+        fixture.tags.append((0x6ffffef5, BASE + 0xa00))
+        self.assertEqual([symbol['name'] for symbol in fixture.parse()['symbols']], ['', 'foo', 'bar'])
+
+    def test_gnu_hash_must_agree_and_terminate(self):
+        fixture = Fixture()
+        fixture.tags.append((0x6ffffef5, BASE + 0xa00))
+        self.assertEqual(len(fixture.parse()['symbols']), 3)
+        longer = Fixture(gnu_chain=(0, 0, 1))
+        longer.tags.append((0x6ffffef5, BASE + 0xa00))
+        with self.assertRaisesRegex(DynamicError, 'conflicting or invalid dynamic symbol counts'):
+            longer.parse()
+        unterminated = Fixture(hash_table=False, gnu_chain=(0, 0))
+        unterminated.raw[0xa20:] = bytes(len(unterminated.raw) - 0xa20)
+        unterminated.tags.append((0x6ffffef5, BASE + 0xa00))
+        with self.assertRaisesRegex(DynamicError, 'unmapped|exceeds'):
+            unterminated.parse()
 
     def test_missing_symbol_count_rejected(self):
         with self.assertRaisesRegex(DynamicError, 'symbol count'):

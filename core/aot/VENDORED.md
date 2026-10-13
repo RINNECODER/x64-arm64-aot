@@ -69,3 +69,29 @@ no Vulkan loader or MoltenVK.
    and JSON manifest instead of `APS5_DUMP_FRAMES` BMPs plus the `capture-trace.log` flip lines.
    `images.read_png` decodes the PNGs to the same RGB the BMP reader returns. The BMP path and
    all its checks are unchanged.
+
+## Sync batch 8 (upstream heads taken)
+
+Fetched read-only with `git fetch --no-tags https://github.com/boykopovar/AnyPS5.git pull/<N>/head:refs/remotes/aot/<N>`.
+Each PR is a stack; 5021 contains 4813, which contains 4760, which contains 4718. Merged with
+a per-file three-way merge against the original vendored base (`d4354e41c2`), our tree as "ours".
+
+| PR | Head | Taken |
+|---|---|---|
+| [#4718](https://github.com/boykopovar/AnyPS5/pull/4718) | `007d30827d36` | guest lifting/emission (`guest_*`), module TLS and lifecycle, bundles, unwind index, load facts, sectionless recovery, finite tables, immutable data, guest C++ exceptions with static TLS, checked atomics |
+| [#4760](https://github.com/boykopovar/AnyPS5/pull/4760) | `0f7e237338d5` | extended loads, packed double truncation, numeric profile, SCE startup |
+| [#4813](https://github.com/boykopovar/AnyPS5/pull/4813) | `d83b44515937` | checked native atomics for ordered scalar accesses |
+| [#5021](https://github.com/boykopovar/AnyPS5/pull/5021) | `be5cc3c581ae` | provider catalogs, contract recipes, SCE/CLI consumer examples with native specializations, qualified provider calls |
+| [#1835](https://github.com/boykopovar/AnyPS5/pull/1835) | `7425066a0ade` | nothing: its `core/aot` is older than the vendored #3891 content |
+
+Also vendored for the new tests: `core/libs/native/{NativeAotBundle,NativeAotGuest,NativeAotGuestMain,
+NativeAotSce,NativeAotThreads,NativeAotGlibc*}.{cpp,hpp}`, `core/libs/prx/libc/include/NativeAotBundle.hpp`,
+`core/libs/tests/{NativeAotBundle,NativeAotThreads}.cpp`, and the newer `GuestTlsMacOs.{hpp,cpp}`.
+
+Kept ours where both sides differ: `native_image.py` data pointers, the `data_bindings` contract
+(upstream's stricter `data_imports` is supported alongside it), our dispatch/switch/uniform-ABI call
+lowering (upstream's finite-table targets and membership checks added on top), our TLS lowering
+(`allow_unlowered_tls`; upstream module TLS added), `core/aot/examples/gpu_cube/contracts.json`
+(upstream replaced it with `contract-recipe.json`, which is also present), and
+`core/libs/native/CMakeLists.txt` and `NativeAotImage/Dispatch/Tls.cpp` (not touched). The new native
+sources are not yet in `core/libs/native/CMakeLists.txt`; the AOT tests compile them directly.
