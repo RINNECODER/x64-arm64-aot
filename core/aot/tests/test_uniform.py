@@ -1,0 +1,291 @@
+import ctypes
+import hashlib
+import struct
+import subprocess
+import tempfile
+import unittest
+from pathlib import Path
+
+from abi import (ABIError, UNIFORM_STACK_SLOTS, uniform, uniform_locations, signature)
+from compiler import Image, compile_image
+
+
+def fixture(code, functions, imports=None, relocations=None, data_bindings=None, bindings=None, dispatch=False):
+    """One executable segment with `code`, plus the data/dynamic scaffolding the image needs."""
+    image = bytearray(0x5200)
+    imports = imports or {}
+    relocations = relocations or []
+    bindings = bindings or []
+    ident = b'\x7fELF\x02\x01\x01' + bytes(9)
+    struct.pack_into('<16sHHIQQQIHHHHHH', image, 0, ident, 3, 62, 1, 0x1000, 64, 0x5000, 0, 64, 56, 3, 64, 5, 4)
+    span = max(function['address'] + function['size'] for function in functions) - 0x1000
+    segment = max(len(code), span)
+    struct.pack_into('<IIQQQQQQ', image, 64, 1, 5, 0x1000, 0x1000, 0, segment, segment, 0x1000)
+    struct.pack_into('<IIQQQQQQ', image, 120, 1, 6, 0x2000, 0x2000, 0, 0x3000, 0x3000, 0x1000)
+    image[0x1000:0x1000 + len(code)] = code
+    strings = bytearray(b'\0')
+    symbol_count = 1
+    for index, name in enumerate(imports, 1):
+        struct.pack_into('<IBBHQQ', image, 0x2100 + index * 24, len(strings), 0x12, 0, 0, 0, 0)
+        strings.extend(name.encode() + b'\0')
+        struct.pack_into('<QQq', image, 0x2300 + (index - 1) * 24, 0x2000 + (index - 1) * 8, (index << 32) | 7, 0)
+        symbol_count = index + 1
+    image[0x2200:0x2200 + len(strings)] = strings
+    for index, (slot, target) in enumerate(relocations):
+        struct.pack_into('<QQq', image, 0x2380 + index * 24, slot, 8, target)
+    for index, (name, slot) in enumerate(bindings):
+        symbol = symbol_count + index
+        struct.pack_into('<IBBHQQ', image, 0x2100 + symbol * 24, len(strings), 0x11, 0, 0, 0, 0)
+        strings.extend(name.encode() + b'\0')
+        struct.pack_into('<QQq', image, 0x2380 + (len(relocations) + index) * 24, slot, (symbol << 32) | 1, 0)
+    image[0x2200:0x2200 + len(strings)] = strings
+    total_symbols = symbol_count + len(bindings)
+    tags = [(6, 0x2100), (11, 24), (5, 0x2200), (10, len(strings)), (23, 0x2300), (2, len(imports) * 24),
+            (20, 7), (7, 0x2380), (8, (len(relocations) + len(bindings)) * 24), (9, 24), (0, 0)]
+    for index, tag in enumerate(tags):
+        struct.pack_into('<qQ', image, 0x2400 + index * 16, *tag)
+    struct.pack_into('<IIQQQQQQ', image, 176, 2, 6, 0x2400, 0x2400, 0, len(tags) * 16, len(tags) * 16, 8)
+    names = b'\0.dynsym\0.dynstr\0.dynamic\0.shstrtab\0'
+    image[0x2500:0x2500 + len(names)] = names
+    for index, entry in enumerate([
+            (1, 11, 2, 0x2100, 0x2100, total_symbols * 24, 2, 1, 8, 24),
+            (9, 3, 2, 0x2200, 0x2200, len(strings), 0, 0, 1, 0),
+            (17, 6, 3, 0x2400, 0x2400, len(tags) * 16, 2, 0, 8, 16),
+            (26, 3, 0, 0, 0x2500, len(names), 0, 0, 1, 0)], 1):
+        struct.pack_into('<IIQQQQIIQQ', image, 0x5000 + index * 64, *entry)
+    contracts = {'schema': 1, 'sha256': hashlib.sha256(image).hexdigest(),
+                 'functions': functions, 'imports': imports,
+                 'data': [{'address': 0x2000, 'size': 0x3000}], 'pointer_relocations': relocations,
+                 'data_bindings': data_bindings or {}, 'dispatch': dispatch}
+    return bytes(image), contracts
+
+
+def uniform_function(name, address, size, **extra):
+    return {'name': name, 'address': address, 'size': size, 'uniform': True,
+            'result': 'void', 'parameters': [], **extra}
+
+
+class RegisterFile(ctypes.Structure):
+    _fields_ = [('gpr', ctypes.c_uint64 * 16), ('xmm', (ctypes.c_uint64 * 2) * 16),
+                ('stack', ctypes.c_uint64 * UNIFORM_STACK_SLOTS)]
+
+
+GPR = {'rax': 0, 'rcx': 1, 'rdx': 2, 'rbx': 3, 'rsp': 4, 'rbp': 5, 'rsi': 6, 'rdi': 7,
+       **{f'r{i}': i - 8 + 8 for i in range(8, 16)}}
+
+
+class UniformABITests(unittest.TestCase):
+    def setUp(self):
+        self.temporary = tempfile.TemporaryDirectory(prefix='anyps5-native-aot-')
+        self.directory = Path(self.temporary.name)
+        self.addCleanup(self.temporary.cleanup)
+
+    def compile(self, raw, contracts, entry):
+        source = self.directory / 'input.elf'
+        source.write_bytes(raw)
+        ir, report = compile_image(Image(source, contracts))
+        ll = self.directory / 'output.ll'
+        ll.write_text(ir)
+        binary = self.directory / 'output.dylib'
+        subprocess.run(['xcrun', 'clang', '-arch', 'arm64', '-O3', '-dynamiclib', str(ll), '-o', str(binary)],
+                       check=True, capture_output=True)
+        library = ctypes.CDLL(str(binary))
+        self.library = library
+        function = getattr(library, entry)
+        function.restype = None
+        function.argtypes = [ctypes.POINTER(RegisterFile)]
+        return function, ir, library
+
+    def test_signature_accepts_uniform_and_rejects_scalar_result(self):
+        self.assertTrue(uniform({'name': 'sub', 'uniform': True}))
+        self.assertEqual(signature({'name': 'sub', 'uniform': True}), ('void', []))
+        self.assertEqual(signature({'name': 'sub', 'guest_calling_convention': 'x86_64-uniform'}),
+                         ('void', []))
+        for bad in ({'name': 'sub', 'uniform': True, 'result': 'i64'},
+                    {'name': 'sub', 'uniform': True, 'parameters': ['ptr']}):
+            with self.subTest(bad=bad), self.assertRaises(ABIError):
+                signature(bad)
+
+    def test_uniform_locations_cover_the_guest_register_file(self):
+        locations = uniform_locations()
+        registers = [item['name'] for item in locations if item['kind'] == 'register']
+        self.assertEqual(registers[:8], ['rax', 'rcx', 'rdx', 'rbx', 'rsp', 'rbp', 'rsi', 'rdi'])
+        self.assertEqual(registers[8:16], [f'r{i}' for i in range(8, 16)])
+        self.assertEqual(registers[16:], [f'xmm{i}' for i in range(16)])
+        stack = [item['offset'] for item in locations if item['kind'] == 'stack']
+        self.assertEqual(stack, list(range(8, 8 + 8 * UNIFORM_STACK_SLOTS, 8)))
+
+    def test_uniform_leaf_reads_and_writes_the_register_file(self):
+        code = bytes.fromhex('4889f84801f0c3')  # mov rax, rdi ; add rax, rsi ; ret
+        raw, contracts = fixture(code, [uniform_function('sub_1000', 0x1000, len(code))])
+        function, ir, _ = self.compile(raw, contracts, 'sub_1000')
+        self.assertIn('define void @sub_1000(ptr %rf)', ir)
+        registers = RegisterFile()
+        registers.gpr[GPR['rdi']] = 10
+        registers.gpr[GPR['rsi']] = 5
+        function(ctypes.byref(registers))
+        self.assertEqual(registers.gpr[GPR['rax']], 15)
+
+    def test_uniform_pointer_argument_loads_the_register_not_an_undefined_arg(self):
+        # mov rax, [rdi] ; ret -> rax = *(u64*)rdi. The uniform ABI keeps rdi in its
+        # own alloca; a pointer dereference must use that value, not a typed %argN.
+        code = bytes.fromhex('488b07c3')
+        raw, contracts = fixture(code, [uniform_function('sub_1000', 0x1000, len(code))])
+        function, ir, _ = self.compile(raw, contracts, 'sub_1000')
+        self.assertNotIn('%arg', ir)
+        target = ctypes.c_uint64(0x1234)
+        registers = RegisterFile()
+        registers.gpr[GPR['rdi']] = ctypes.addressof(target)
+        function(ctypes.byref(registers))
+        self.assertEqual(registers.gpr[GPR['rax']], 0x1234)
+
+    def test_uniform_call_passes_the_register_file(self):
+        # 0x1000: call 0x1010 ; ret        0x1010: mov rax, rdi ; add rax, rsi ; ret
+        code = bytearray(0x17)
+        code[0x00:0x06] = bytes.fromhex('e80b000000c3')
+        code[0x10:0x17] = bytes.fromhex('4889f84801f0c3')
+        functions = [uniform_function('sub_1000', 0x1000, 6),
+                     uniform_function('sub_1010', 0x1010, 7)]
+        raw, contracts = fixture(bytes(code), functions)
+        function, ir, _ = self.compile(raw, contracts, 'sub_1000')
+        self.assertIn('call void @sub_1010(ptr %rf_out)', ir)
+        registers = RegisterFile()
+        registers.gpr[GPR['rdi']] = 21
+        registers.gpr[GPR['rsi']] = 21
+        function(ctypes.byref(registers))
+        self.assertEqual(registers.gpr[GPR['rax']], 42)
+
+    def test_uniform_indirect_call_uses_the_declared_target_set(self):
+        # 0x1000: call rax ; ret          0x1010: mov rax, rdi ; ret
+        code = bytearray(0x14)
+        code[0x00:0x03] = bytes.fromhex('ffd0c3')
+        code[0x10:0x14] = bytes.fromhex('4889f8c3')
+        functions = [uniform_function('sub_1000', 0x1000, 3,
+                                      indirect_calls=[{'address': 0x1000, 'targets': [0x1010]}]),
+                     uniform_function('sub_1010', 0x1010, 4)]
+        raw, contracts = fixture(bytes(code), functions)
+        function, ir, library = self.compile(raw, contracts, 'sub_1000')
+        self.assertIn('inttoptr i64', ir)
+        self.assertIn('call void %v', ir)
+        registers = RegisterFile()
+        registers.gpr[GPR['rdi']] = 7
+        registers.gpr[GPR['rax']] = ctypes.cast(library.sub_1010, ctypes.c_void_p).value
+        function(ctypes.byref(registers))
+        self.assertEqual(registers.gpr[GPR['rax']], 7)
+
+    def test_uniform_unannotated_indirect_call_dispatches(self):
+        # 0x1000: call rax ; ret  — no target set, so it lowers to the runtime dispatch table
+        code = bytearray(0x04)
+        code[0x00:0x03] = bytes.fromhex('ffd0c3')
+        raw, contracts = fixture(bytes(code), [uniform_function('sub_1000', 0x1000, 3)], dispatch=True)
+        source = self.directory / 'input.elf'
+        source.write_bytes(raw)
+        ir, report = compile_image(Image(source, contracts))
+        self.assertIn('@NativeAotDispatch_nid_no_patch', ir)
+        self.assertIn('@NativeAotReportDispatchFailure_nid_no_patch', ir)
+        self.assertIn('call ptr @NativeAotDispatch_nid_no_patch', ir)
+
+    def test_uniform_dispatch_table_is_valid_llvm(self):
+        # The dispatch table initializer needs the struct type on each element; without
+        # it clang rejects the module with "expected '}' at end of struct".
+        code = bytearray(0x04)
+        code[0x00:0x03] = bytes.fromhex('ffd0c3')
+        raw, contracts = fixture(bytes(code), [uniform_function('sub_1000', 0x1000, 3)], dispatch=True)
+        source = self.directory / 'input.elf'
+        source.write_bytes(raw)
+        ir, _ = compile_image(Image(source, contracts))
+        self.assertIn('{ i64, ptr } { i64 4096, ptr @sub_1000 }', ir)
+        ll = self.directory / 'output.ll'
+        ll.write_text(ir)
+        subprocess.run(['xcrun', 'clang', '-arch', 'arm64', '-O3', '-c', str(ll), '-o', str(self.directory / 'output.o')],
+                       check=True, capture_output=True)
+
+    def test_uniform_annotated_indirect_jump_is_a_switch(self):
+        # 0x1000: jmp rax   0x1010: mov eax, 1 ; ret   0x1020: mov eax, 2 ; ret
+        code = bytearray(0x30)
+        code[0x00:0x02] = bytes.fromhex('ffe0')
+        code[0x10:0x16] = bytes.fromhex('b801000000c3')
+        code[0x20:0x26] = bytes.fromhex('b802000000c3')
+        function = uniform_function('sub_1000', 0x1000, 0x30,
+                                    indirect_jumps=[{'address': 0x1000, 'targets': [0x1010, 0x1020]}])
+        raw, contracts = fixture(bytes(code), [function])
+        source = self.directory / 'input.elf'
+        source.write_bytes(raw)
+        ir, report = compile_image(Image(source, contracts))
+        self.assertIn('switch_1000', ir)
+        self.assertIn('label %b1010', ir)
+        self.assertIn('label %b1020', ir)
+
+    def test_uniform_calls_return_zero_stub_import(self):
+        # 0x1000: call 0x1010 ; ret     0x1010: jmp [rip + slot]  (PLT stub for an import)
+        code = bytearray(0x16)
+        code[0x00:0x06] = bytes.fromhex('e80b000000c3')
+        code[0x10:0x16] = bytes.fromhex('ff25ea0f0000')
+        stub = {'name': 'stub_import', 'result': 'i64', 'parameters': [], 'stub': True}
+        raw, contracts = fixture(bytes(code), [uniform_function('sub_1000', 0x1000, 6)],
+                                 imports={'stub_import': stub})
+        function, ir, _ = self.compile(raw, contracts, 'sub_1000')
+        self.assertIn('define i64 @stub_import() { entry: ret i64 0 }', ir)
+        registers = RegisterFile()
+        function(ctypes.byref(registers))
+        self.assertEqual(registers.gpr[GPR['rax']], 0)
+
+    def test_data_binding_emits_native_object_and_store(self):
+        code = bytearray(0x04)
+        code[0x00:0x04] = bytes.fromhex('4889f8c3')
+        binding = {'name': 'bound_vtable', 'size': 64}
+        raw, contracts = fixture(bytes(code), [uniform_function('sub_1000', 0x1000, 4)],
+                                 bindings=[('data_symbol', 0x2000)],
+                                 data_bindings={'data_symbol': binding})
+        source = self.directory / 'input.elf'
+        source.write_bytes(raw)
+        ir, report = compile_image(Image(source, contracts))
+        self.assertIn('@bound_vtable = global [64 x i8] zeroinitializer', ir)
+        self.assertIn('store ptr @bound_vtable', ir)
+
+    def test_uniform_indirect_call_rejects_non_uniform_target(self):
+        code = bytes.fromhex('ffd0c3')
+        functions = [uniform_function('sub_1000', 0x1000, 3,
+                                      indirect_calls=[{'address': 0x1000, 'targets': [0x1010]}]),
+                     {'name': 'typed_1010', 'address': 0x1010, 'size': 3, 'result': 'void', 'parameters': []}]
+        code = code + bytes.fromhex('c3')
+        raw, contracts = fixture(code, functions)
+        source = self.directory / 'input.elf'
+        source.write_bytes(raw)
+        with self.assertRaises(Exception):
+            compile_image(Image(source, contracts))
+
+    def test_unresolvable_annotated_indirect_target_falls_back_to_dispatch(self):
+        # Contract: with dispatch enabled, an indirect call whose annotated target set names an
+        # address that is neither a function nor a PLT stub dispatches through the runtime table
+        # instead of rejecting the function (the whole-title behaviour).
+        code = bytes.fromhex('ffd0c3')
+        functions = [uniform_function('sub_1000', 0x1000, 3, indirect_calls=[{'address': 0x1000, 'targets': [0x2000]}])]
+        raw, contracts = fixture(code, functions, dispatch=True)
+        source = self.directory / 'input.elf'
+        source.write_bytes(raw)
+        ir, report = compile_image(Image(source, contracts))
+        self.assertIn('NativeAotDispatch_nid_no_patch', ir)
+        contracts['dispatch'] = False
+        with self.assertRaises(Exception):
+            compile_image(Image(source, contracts))
+
+    def test_unimplemented_function_becomes_a_reporting_stub(self):
+        # Contract: with allow_unimplemented (the whole-title build), a body the lifter rejects
+        # becomes a stub that reports its guest address and traps, so one image covers the whole
+        # eboot. Without the flag the image is still rejected (the SDK-sample default).
+        # fxsave [rdi] has no lowering (x87 loads such as fld now do).
+        functions = [uniform_function('sub_1000', 0x1000, 4)]
+        raw, contracts = fixture(bytes.fromhex('0fae07c3'), functions)
+        source = self.directory / 'input.elf'
+        source.write_bytes(raw)
+        with self.assertRaises(Exception):
+            compile_image(Image(source, contracts))
+        contracts['allow_unimplemented'] = True
+        ir, report = compile_image(Image(source, contracts))
+        self.assertIn('call void @NativeAotReportUnimplemented_nid_no_patch(i64 4096)', ir)
+        self.assertEqual(report['unimplemented_functions'], 1)
+
+
+if __name__ == '__main__':
+    unittest.main()

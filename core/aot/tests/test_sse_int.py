@@ -1,0 +1,47 @@
+"""Legacy SSE packed integer/float compares, min/max, unpacks and arithmetic."""
+from avx_reference import NativeAvxHarness
+
+
+class SsePackedTests(NativeAvxHarness):
+    def test_integer_compares(self):
+        for mnemonic in ('pcmpeqb', 'pcmpeqw', 'pcmpeqd', 'pcmpeqq',
+                         'pcmpgtb', 'pcmpgtw', 'pcmpgtd', 'pcmpgtq'):
+            with self.subTest(mnemonic=mnemonic):
+                self.compare_native(f'{mnemonic} xmm0, xmm1', self.samples())
+
+    def test_unpacks(self):
+        for mnemonic in ('punpcklbw', 'punpckhbw', 'punpcklwd', 'punpckhwd',
+                         'punpckldq', 'punpckhdq', 'punpcklqdq', 'punpckhqdq'):
+            with self.subTest(mnemonic=mnemonic):
+                self.compare_native(f'{mnemonic} xmm0, xmm1', self.samples())
+
+    def test_min_max(self):
+        for mnemonic in ('minps', 'maxps', 'minpd', 'maxpd', 'minss', 'maxss', 'minsd', 'maxsd'):
+            with self.subTest(mnemonic=mnemonic):
+                self.compare_native(f'{mnemonic} xmm0, xmm1', self.samples(), nan_normalize=True)
+
+    def test_packed_float_arithmetic(self):
+        for mnemonic in ('addpd', 'subpd', 'mulpd', 'divpd'):
+            with self.subTest(mnemonic=mnemonic):
+                self.compare_native(f'{mnemonic} xmm0, xmm1', self.samples(), nan_normalize=True)
+
+    def test_packed_conversions(self):
+        for mnemonic in ('cvtdq2pd', 'cvtpd2dq', 'cvttpd2dq', 'cvtpd2ps', 'cvtps2pd',
+                         'cvtdq2ps', 'cvtps2dq', 'cvttps2dq'):
+            with self.subTest(mnemonic=mnemonic):
+                self.compare_native(f'{mnemonic} xmm0, xmm1', self.samples(), nan_normalize=True)
+
+    def test_compare_predicates(self):
+        for kind in ('ps', 'pd'):
+            for predicate in range(32):
+                with self.subTest(kind=kind, predicate=predicate):
+                    self.compare_native(f'cmp{kind} xmm0, xmm1, {predicate}', self.samples())
+        for kind in ('ss', 'sd'):
+            for predicate in range(32):
+                with self.subTest(kind=kind, predicate=predicate):
+                    self.compare_native(f'cmp{kind} xmm0, xmm1, {predicate}', self.samples())
+
+
+if __name__ == '__main__':
+    import unittest
+    unittest.main()

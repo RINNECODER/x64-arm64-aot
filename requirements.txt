@@ -1,0 +1,4 @@
+capstone==5.0.*
+pyelftools
+pytest
+pytest-xdist

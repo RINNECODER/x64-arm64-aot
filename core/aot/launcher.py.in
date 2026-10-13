@@ -1,0 +1,11 @@
+import os
+import sys
+
+sys.path[:0] = r"@aotPythonPath@".split(":")
+if r'@aotClang@':
+    os.environ['ANYPS5_AOT_CLANG'] = r'@aotClang@'
+os.environ['LIBCAPSTONE_PATH'] = r"@CMAKE_CURRENT_BINARY_DIR@/capstone"
+
+from compiler import main
+
+main()
