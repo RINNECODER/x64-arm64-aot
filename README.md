@@ -43,17 +43,23 @@ Requirements: an Apple silicon Mac with the Xcode command-line tools (clang), an
 
 ```sh
 python3.13 -m venv .venv && .venv/bin/pip install -r requirements.txt
-PYTHONPATH=core/aot:. .venv/bin/python -m pytest -n 4 core/aot/tests   # 424 tests
+PYTHONPATH=core/aot:. .venv/bin/python -m pytest -n 4 core/aot/tests   # 612 tests
 ```
+
+## Updates
+
+This repository mirrors the compiler from the `native/arm64` branch of RINNECODER/AnyPS5. Each sync runs
+the full test suite and a privacy check before it is published.
 
 ## Credits and license
 
-- **Original compiler:** the compiler core (decoder, IR lowering framework, runtime and examples) is
-  Daniele Giovane's AOT compiler from
-  [boykopovar/AnyPS5 #1835](https://github.com/boykopovar/AnyPS5/pull/1835) and
-  [#3891](https://github.com/boykopovar/AnyPS5/pull/3891). See `core/aot/VENDORED.md`.
-- **Added in this repository** (about 5,600 lines over the original's ~14,000, built with AI coding agents
-  that I directed and reviewed):
+- **Original compiler:** the compiler core (decoder, IR lowering framework, runtime and examples) and its
+  newer guest pipeline (module TLS, bundles, checked atomics, C++ exceptions) come from upstream
+  [boykopovar/AnyPS5](https://github.com/boykopovar/AnyPS5): Daniele Giovane's AOT compiler
+  ([#1835](https://github.com/boykopovar/AnyPS5/pull/1835), [#3891](https://github.com/boykopovar/AnyPS5/pull/3891))
+  and its follow-ups (#4718, #4760, #4813, #5021). See `core/aot/VENDORED.md`. Upstream changes are
+  merged in regularly.
+- **Added in this repository** (built with AI coding agents that I directed and reviewed):
   - instruction coverage: AVX/AVX2 extensions, FMA, BMI1/2, x87, atomics and system instructions;
   - the uniform register-file ABI;
   - the differential testing harness;
