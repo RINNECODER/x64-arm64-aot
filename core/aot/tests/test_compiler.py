@@ -205,7 +205,7 @@ int main(void) {
 
     def test_rejections(self):
         for code, message in [('0f05c3', 'instruction semantics'), ('ffe0', 'indirect branches'),
-                              ('b001c3', 'does not define rax'), ('c20800', 'stack cleanup'),
+                              ('b001c3', 'does not define rax'),
                               ('4883ec08c3', 'unbalanced'), ('7500c3', 'undefined branch flags')]:
             with self.subTest(code=code):
                 raw, contracts = fixture(bytes.fromhex(code))
@@ -213,6 +213,15 @@ int main(void) {
                 path.write_bytes(raw)
                 with self.assertRaisesRegex(Rejected, message):
                     compile_image(Image(path, contracts))
+
+    def test_ret_immediate_is_a_plain_return(self):
+        # `ret imm16` is callee stack cleanup; the uniform caller restores its own rsp, so the
+        # immediate is ignored rather than rejected.
+        raw, contracts = fixture(bytes.fromhex('31c0c20800'))
+        path = self.directory / 'ret-immediate.elf'
+        path.write_bytes(raw)
+        ir, _ = compile_image(Image(path, contracts))
+        self.assertIn('define', ir)
 
     def test_hash_binding(self):
         raw, contracts = fixture(bytes.fromhex('31c0c3'))

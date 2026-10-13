@@ -10,18 +10,22 @@ from abi import (ABIError, UNIFORM_STACK_SLOTS, uniform, uniform_locations, sign
 from compiler import Image, compile_image
 
 
-def fixture(code, functions, imports=None, relocations=None, data_bindings=None, bindings=None, dispatch=False):
+def fixture(code, functions, imports=None, relocations=None, data_bindings=None, bindings=None, dispatch=False, tls=None):
     """One executable segment with `code`, plus the data/dynamic scaffolding the image needs."""
     image = bytearray(0x5200)
     imports = imports or {}
     relocations = relocations or []
     bindings = bindings or []
     ident = b'\x7fELF\x02\x01\x01' + bytes(9)
-    struct.pack_into('<16sHHIQQQIHHHHHH', image, 0, ident, 3, 62, 1, 0x1000, 64, 0x5000, 0, 64, 56, 3, 64, 5, 4)
+    phnum = 4 if tls else 3
+    struct.pack_into('<16sHHIQQQIHHHHHH', image, 0, ident, 3, 62, 1, 0x1000, 64, 0x5000, 0, 64, 56, phnum, 64, 5, 4)
     span = max(function['address'] + function['size'] for function in functions) - 0x1000
     segment = max(len(code), span)
     struct.pack_into('<IIQQQQQQ', image, 64, 1, 5, 0x1000, 0x1000, 0, segment, segment, 0x1000)
     struct.pack_into('<IIQQQQQQ', image, 120, 1, 6, 0x2000, 0x2000, 0, 0x3000, 0x3000, 0x1000)
+    if tls:
+        image[0x2600:0x2600 + len(tls)] = tls
+        struct.pack_into('<IIQQQQQQ', image, 232, 7, 4, 0x2600, 0x3000, 0, len(tls), 0x1000, 16)
     image[0x1000:0x1000 + len(code)] = code
     strings = bytearray(b'\0')
     symbol_count = 1
@@ -56,7 +60,7 @@ def fixture(code, functions, imports=None, relocations=None, data_bindings=None,
     contracts = {'schema': 1, 'sha256': hashlib.sha256(image).hexdigest(),
                  'functions': functions, 'imports': imports,
                  'data': [{'address': 0x2000, 'size': 0x3000}], 'pointer_relocations': relocations,
-                 'data_bindings': data_bindings or {}, 'dispatch': dispatch}
+                 'data_bindings': data_bindings or {}, 'dispatch': dispatch, 'allow_unlowered_tls': True}
     return bytes(image), contracts
 
 
@@ -152,6 +156,41 @@ class UniformABITests(unittest.TestCase):
         registers = RegisterFile()
         registers.gpr[GPR['rdi']] = 21
         registers.gpr[GPR['rsi']] = 21
+        function(ctypes.byref(registers))
+        self.assertEqual(registers.gpr[GPR['rax']], 42)
+
+    def test_uniform_conditional_tail_call(self):
+        # 0x1000: test rdi,rdi ; jne 0x1010 ; mov rax,7 ; ret   0x1010: mov rax,rdi ; ret
+        code = bytearray(0x14)
+        code[0x00:0x0D] = bytes.fromhex('4885ff750b48c7c007000000c3')
+        code[0x10:0x14] = bytes.fromhex('4889f8c3')
+        functions = [uniform_function('sub_1000', 0x1000, 0x10),
+                     uniform_function('sub_1010', 0x1010, 4)]
+        raw, contracts = fixture(bytes(code), functions)
+        function, ir, _ = self.compile(raw, contracts, 'sub_1000')
+        self.assertIn('br i1', ir)
+        self.assertIn('call void @sub_1010(ptr %rf_out)', ir)
+        registers = RegisterFile()
+        registers.gpr[GPR['rdi']] = 0
+        function(ctypes.byref(registers))
+        self.assertEqual(registers.gpr[GPR['rax']], 7)
+        registers = RegisterFile()
+        registers.gpr[GPR['rdi']] = 42
+        function(ctypes.byref(registers))
+        self.assertEqual(registers.gpr[GPR['rax']], 42)
+
+    def test_uniform_frame_repair_tail_call(self):
+        # 0x1000: push rbx ; mov rbx,rdi ; jmp 0x1010   0x1010: mov rax,rdi ; ret
+        code = bytearray(0x14)
+        code[0x00:0x09] = bytes.fromhex('534889fbe907000000')
+        code[0x10:0x14] = bytes.fromhex('4889f8c3')
+        functions = [uniform_function('sub_1000', 0x1000, 0x10),
+                     uniform_function('sub_1010', 0x1010, 4)]
+        raw, contracts = fixture(bytes(code), functions)
+        function, ir, _ = self.compile(raw, contracts, 'sub_1000')
+        self.assertIn('call void @sub_1010(ptr %rf_out)', ir)
+        registers = RegisterFile()
+        registers.gpr[GPR['rdi']] = 42
         function(ctypes.byref(registers))
         self.assertEqual(registers.gpr[GPR['rax']], 42)
 
