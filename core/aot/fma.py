@@ -91,9 +91,13 @@ def analyze(function, ins, state):
         return False
     if ins.bytes[0] not in (0xc4, 0xc5):
         function.fail(ins, 'only VEX encodings are implemented; EVEX masking requires separate lowering')
+    suffix = parts[3]
     bits = ins.operands[0].size * 8
-    for operand in ins.operands:
-        avx._require(function, ins, state, operand, bits)
+    # A scalar form reads only the low element of its sources; the destination's
+    # preserved upper lanes are read at full width.
+    source_bits = {'ss': 32, 'sd': 64}.get(suffix, bits)
+    for index, operand in enumerate(ins.operands):
+        avx._require(function, ins, state, operand, bits if index == 0 else source_bits)
     avx._define(function, ins, state, ins.operands[0], (1 << bits) - 1, bits)
     return True
 
