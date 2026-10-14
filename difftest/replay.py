@@ -203,7 +203,7 @@ def uniform_call(dylib, name, registers):
     libc.mmap.argtypes = [ctypes.c_void_p, ctypes.c_size_t, ctypes.c_int, ctypes.c_int, ctypes.c_int, ctypes.c_long]
     libc.mmap(ctypes.c_void_p(BASE + 0x70000000), 0x100000, 1 | 2, 0x02 | 0x1000 | 0x10, -1, 0)
     libc.mmap(ctypes.c_void_p(BASE + 0x60000000), 0x100000, 1 | 2, 0x02 | 0x1000 | 0x10, -1, 0)
-    regfile = (ctypes.c_uint64 * 122)()
+    regfile = (ctypes.c_uint64 * 123)()
     for index, register in enumerate(UNIFORM_GPRS):
         regfile[index] = registers.get(register, 0)
     regfile[4] = BASE + 0x700FFFF8  # rsp, matching the x86 runner

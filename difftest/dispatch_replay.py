@@ -236,7 +236,7 @@ def main():
         pid = os.fork()
         if pid == 0:
             try:
-                regfile = (ctypes.c_uint64 * 122)()
+                regfile = (ctypes.c_uint64 * 123)()
                 for index, name in enumerate(replay.UNIFORM_GPRS):
                     regfile[index] = registers.get(name, 0)
                 function = getattr(library, f"sub_{address:x}")
