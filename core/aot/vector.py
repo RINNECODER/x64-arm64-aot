@@ -117,8 +117,14 @@ def _complete_lanes(mask, width, result_width=None):
 
 
 def _policy(function, ins):
-    if any(function.contract.get('floating_point', {}).get(key) != value for key, value in FP_POLICY.items()):
+    # The profile may be declared per function or once for the whole image.
+    profile = function.contract.get('floating_point')
+    if profile is None:
+        image = getattr(function, 'image', None)
+        profile = image.contracts.get('floating_point') if image is not None else None
+    if any((profile or {}).get(key) != value for key, value in FP_POLICY.items()):
         function.fail(ins, 'floating-point instructions require the validated native floating_point profile')
+    function.floating_point_checked = True
 
 
 def _shuffle(ins):

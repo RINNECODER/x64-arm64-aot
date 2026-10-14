@@ -69,6 +69,63 @@ class X87Tests(unittest.TestCase):
             else:
                 self.assertAlmostEqual(got, want, places=12, msg=(code.hex(), value))
 
+    def compare_memory(self, code, samples, in_size, out_size):
+        """Run `code` lifted and natively (x86_64) over `samples` and compare the output bytes."""
+        import struct
+        type(self).serial += 1
+        source = self.directory / f'oracle{self.serial}.S'
+        source.write_text('.intel_syntax noprefix\n.text\n.globl _run\n_run:\n'
+                          + '\n'.join(f'.byte 0x{byte:02x}' for byte in code) + '\nret\n')
+        runner = self.directory / f'runner{self.serial}.c'
+        width = in_size * len(samples[0])
+        runner.write_text('#include <stdint.h>\n#include <stdio.h>\n'
+                          'extern void run(const void*, void*);\n'
+                          f'int main(void){{ unsigned char in[{width}], out[{out_size}]; '
+                          f'while(fread(in,1,{width},stdin)=={width}){{ '
+                          f'for(unsigned i=0;i<{out_size};i++) out[i]=0; run(in,out); fwrite(out,1,{out_size},stdout);}} return 0; }}\n')
+        binary = self.directory / f'oracle{self.serial}.x86'
+        subprocess.run(['xcrun', 'clang', '-arch', 'x86_64', '-O2', str(source), str(runner), '-o', str(binary)],
+                       check=True, capture_output=True)
+        fmt = '<f' if in_size == 4 else '<d'
+        payload = b''.join(struct.pack(fmt, value) for sample in samples for value in sample)
+        raw = subprocess.run([str(binary)], input=payload, check=True, capture_output=True).stdout
+        function = self.build(code)
+        for index, sample in enumerate(samples):
+            registers = RegisterFile()
+            packed = b''.join(struct.pack(fmt, value) for value in sample)
+            input_buffer = ctypes.create_string_buffer(packed, len(packed))
+            output_buffer = ctypes.create_string_buffer(out_size)
+            registers.gpr[7] = ctypes.addressof(input_buffer)  # rdi
+            registers.gpr[6] = ctypes.addressof(output_buffer)  # rsi
+            function(ctypes.byref(registers))
+            got, want = output_buffer.raw[:out_size], raw[index * out_size:(index + 1) * out_size]
+            if out_size == 8:
+                self.assertAlmostEqual(struct.unpack('<d', got)[0], struct.unpack('<d', want)[0], places=12,
+                                       msg=(code.hex(), sample))
+            elif out_size == 4:
+                self.assertAlmostEqual(struct.unpack('<f', got)[0], struct.unpack('<f', want)[0], places=6,
+                                       msg=(code.hex(), sample))
+            else:
+                self.assertEqual(got, want, (code.hex(), sample))
+
+    def test_fcmov_reads_the_stored_flags(self):
+        # fld a ; fld b ; fld c ; fucomi st(2) ; fcmovb st(0), st(1) ; fstp qword [rsi] ;
+        # fstp st(0) ; fstp st(0) ; ret — fcmovb must use CF from `fucomi st(0), st(2)`, not a
+        # fresh st(0)/st(1) comparison, and the stack is left balanced for the next sample.
+        code = bytes.fromhex('d907d94704d94708dbeadac1dd1eddd8ddd8c3')
+        samples = [(10.0, 5.0, 7.0), (3.0, 5.0, 7.0), (7.0, 5.0, 10.0), (1.0, 2.0, 3.0)]
+        self.compare_memory(code, samples, in_size=4, out_size=8)
+
+    def test_fld_fst_m32_uses_float_width(self):
+        # fld dword [rdi] ; fstp dword [rsi] ; ret — m32 is a 4-byte float, not a double.
+        self.compare_memory(bytes.fromhex('d907d91ec3'),
+                            [(1.5,), (2.0,), (-4.5,), (0.125,)], in_size=4, out_size=4)
+
+    def test_fstp_m80_encodes_the_extended_value(self):
+        # fld qword [rdi] ; fstp tbyte [rsi] ; ret — the 80-bit store needs an 80-bit value.
+        self.compare_memory(bytes.fromhex('dd07db3ec3'),
+                            [(1.5,), (2.0,), (-4.5,), (100.0,)], in_size=8, out_size=10)
+
     def test_x87_arithmetic_against_x86(self):
         cases = [
             bytes.fromhex('dd07d9e8dec1dd1ec3'),  # fld [rdi] ; fld1 ; faddp ; fstp [rsi] ; ret

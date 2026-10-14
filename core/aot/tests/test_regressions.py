@@ -153,6 +153,21 @@ ret''')
                 expected = 7 if math.isnan(left) or math.isnan(right) else (4 if left == right else (1 if left < right else 0))
                 self.assertEqual(function(left, right), expected)
 
+    def test_floating_point_profile_gate_and_top_level_declaration(self):
+        # A floating-point instruction needs a declared profile; the title declares it once for
+        # the whole image. The FPCR check is emitted only in functions that used FP.
+        code = self.assemble('addsd xmm0, xmm1\nmovq rax, xmm0\nret')
+        raw, contracts = fixture(code, ['f64', 'f64'], result='f64')
+        with self.assertRaisesRegex(Rejected, 'floating_point profile'):
+            compile_image(self.image(raw, contracts))
+        contracts['floating_point'] = dict(vector.FP_POLICY)
+        self.compile(raw, contracts)
+        self.assertIn('mrs $0, FPCR', (self.directory / 'output.ll').read_text())
+        raw2, contracts2 = fixture(bytes.fromhex('4889f8c3'), ['u64'], result='u64')
+        contracts2['floating_point'] = dict(vector.FP_POLICY)
+        self.compile(raw2, contracts2)
+        self.assertNotIn('mrs $0, FPCR', (self.directory / 'output.ll').read_text())
+
     def test_unsupported_rel_tables_rejected(self):
         for additions in ([(17, 0x2380)], [(18, 16)], [(36, 0x2380)], [(20, 17)]):
             with self.subTest(additions=additions):

@@ -19,14 +19,22 @@ OPERATIONS = {
     'fnstsw', 'fnstcw', 'fldcw', 'fcmove', 'fcmovne', 'fcmovb', 'fcmovbe', 'fcmovnb',
     'fcmovnbe', 'fcmovu', 'fcmovnu', 'fprem', 'fprem1', 'frndint', 'fwait',
 }
-CONDITIONS = {'fcmove': 'eq', 'fcmovne': 'ne', 'fcmovb': 'ult', 'fcmovbe': 'ule',
-              'fcmovnb': 'uge', 'fcmovnbe': 'ugt', 'fcmovu': 'uno', 'fcmovnu': 'ord'}
+# fcmovcc reads the stored EFLAGS set by a previous fcomi/fucomi (or integer compare), not a
+# fresh st(0)/st(1) comparison: predicate name and the flags it needs.
+FCMOV = {'fcmove': ('je', {'zf'}), 'fcmovne': ('jne', {'zf'}), 'fcmovb': ('jb', {'cf'}),
+         'fcmovbe': ('jbe', {'cf', 'zf'}), 'fcmovnb': ('jae', {'cf'}),
+         'fcmovnbe': ('ja', {'cf', 'zf'}), 'fcmovu': ('jp', {'pf'}), 'fcmovnu': ('jnp', {'pf'})}
 
 
 def analyze(function, ins, state):
     op = ins.mnemonic
     if op not in OPERATIONS:
         return False
+    if op in ('fcomi', 'fcomip', 'fucomi', 'fucomip'):
+        # These set the integer EFLAGS (CF/PF/ZF), which a following fcmovcc/conditional reads.
+        state['flags'] = {'zf', 'pf', 'cf', 'of', 'sf'}
+    if op in FCMOV and not FCMOV[op][1] <= state['flags']:
+        function.fail(ins, 'undefined floating-point condition flags')
     if ins.operands and ins.operands[-1].type == X86_OP_MEM:
         function.read_operand(ins, state, ins.operands[-1])
     return True
@@ -109,7 +117,16 @@ def lower(function, ins):
         if args[0].type == X86_OP_REG:
             _set_st(function, _index(ins, args[0]), _st(function, 0))
         else:
-            function.write(ins, args[0], function.emit(f'bitcast double {_st(function, 0)} to i64'))
+            width = args[0].size * 8
+            value = _st(function, 0)
+            if width == 32:
+                narrowed = function.emit(f'fptrunc double {value} to float')
+                stored = function.emit(f'bitcast float {narrowed} to i32')
+            elif width == 80:
+                stored = _extended(function, value)
+            else:
+                stored = function.emit(f'bitcast double {value} to i64')
+            function.write(ins, args[0], stored)
         if op == 'fstp':
             _pop(function)
         return True
@@ -188,15 +205,12 @@ def lower(function, ins):
             _pop(function)
         return True
     if op == 'fnstsw':
-        if args[0].type == X86_OP_REG:
-            function.write(ins, args[0], _status_word(function))
-        else:
-            function.write(ins, args[0], _status_word(function))
+        function.write(ins, args[0], _status_word(function))
         return True
     if op in ('fnstcw', 'fldcw'):
         return True
-    if op in CONDITIONS:
-        predicate = function.emit(f'fcmp {CONDITIONS[op]} double {_st(function, 0)}, {_st(function, 1)}')
+    if op in FCMOV:
+        predicate = function.condition(FCMOV[op][0])
         index = _index(ins, args[-1])
         old, new = _st(function, 0), _st(function, index)
         _set_st(function, 0, function.emit(f'select i1 {predicate}, double {new}, double {old}'))
@@ -217,8 +231,57 @@ def _index(ins, operand):
 
 
 def _memory(function, ins, operand):
+    width = operand.size * 8
+    if width == 32:
+        raw = function.read(ins, operand, 32)
+        single = function.emit(f'bitcast i32 {raw} to float')
+        return function.emit(f'fpext float {single} to double')
+    if width == 80:
+        return _double(function, function.read(ins, operand, 80))
     value = function.read(ins, operand, 64)
     return function.emit(f'bitcast i64 {value} to double')
+
+
+def _extended(function, value):
+    """The x87 80-bit extended bit pattern of a double, as an i80 (ARM64 has no x86_fp80)."""
+    bits = function.emit(f'bitcast double {value} to i64')
+    sign = function.emit(f'and i64 {bits}, {1 << 63}')
+    magnitude = function.emit(f'and i64 {bits}, {(1 << 63) - 1}')
+    exponent = function.emit(f'lshr i64 {magnitude}, 52')
+    fraction = function.emit(f'and i64 {magnitude}, {(1 << 52) - 1}')
+    zero = function.emit(f'icmp eq i64 {magnitude}, 0')
+    biased = function.emit(f'add i64 {exponent}, 15360')
+    biased = function.emit(f'select i1 {zero}, i64 0, i64 {biased}')
+    significand = function.emit(f'shl i64 {fraction}, 11')
+    significand = function.emit(f'or i64 {significand}, {1 << 63}')
+    significand = function.emit(f'select i1 {zero}, i64 0, i64 {significand}')
+    result = function.emit(f'zext i64 {significand} to i80')
+    high = function.emit(f'zext i64 {biased} to i80')
+    high = function.emit(f'shl i80 {high}, 64')
+    result = function.emit(f'or i80 {result}, {high}')
+    sign80 = function.emit(f'zext i64 {sign} to i80')
+    sign80 = function.emit(f'shl i80 {sign80}, 16')
+    return function.emit(f'or i80 {result}, {sign80}')
+
+
+def _double(function, raw):
+    """The double value of an x87 80-bit extended i80."""
+    sign = function.emit(f'lshr i80 {raw}, 79')
+    sign = function.emit(f'trunc i80 {sign} to i64')
+    sign = function.emit(f'shl i64 {sign}, 63')
+    exponent = function.emit(f'lshr i80 {raw}, 64')
+    exponent = function.emit(f'trunc i80 {exponent} to i64')
+    exponent = function.emit(f'and i64 {exponent}, 0x7fff')
+    significand = function.emit(f'trunc i80 {raw} to i64')
+    zero = function.emit(f'icmp eq i64 {exponent}, 0')
+    biased = function.emit(f'sub i64 {exponent}, 15360')
+    fraction = function.emit(f'lshr i64 {significand}, 11')
+    fraction = function.emit(f'and i64 {fraction}, {(1 << 52) - 1}')
+    magnitude = function.emit(f'shl i64 {biased}, 52')
+    magnitude = function.emit(f'or i64 {magnitude}, {fraction}')
+    magnitude = function.emit(f'select i1 {zero}, i64 0, i64 {magnitude}')
+    bits = function.emit(f'or i64 {sign}, {magnitude}')
+    return function.emit(f'bitcast i64 {bits} to double')
 
 
 def _integer_memory(function, ins, operand):

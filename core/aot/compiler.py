@@ -1520,7 +1520,9 @@ class Function:
                     self.store_vector(loc['name'], value, loc['bits'], zero_upper=True)
                 else:
                     self.store(loc['name'], value, loc['bits'])
-        if self.contract.get('floating_point'):
+        if getattr(self, 'floating_point_checked', False):
+            # Only functions that actually used a floating-point instruction need the host
+            # FPCR validated (the profile is declared once for the image or per function).
             control = self.emit('call i64 asm sideeffect "mrs $0, FPCR", "=r"()')
             mask = (3 << 22) | (1 << 24) | 0x9f03
             control = self.emit(f'and i64 {control}, {mask}')
