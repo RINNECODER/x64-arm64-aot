@@ -155,6 +155,8 @@ class Image:
             require(left['address'] + left['size'] <= right['address'], 'overlapping function contracts')
         require(self.elf['e_entry'] in self.functions or (contracts.get('module_image') and self.elf['e_entry'] == 0), 'entry function has no contract')
         self.imports = contracts['imports']
+        self.hle_log = bool(contracts.get('hle_log'))
+        self.hle_names = {}
         self.data_bindings = contracts.get('data_bindings', {})
         # guest_data: the title's data segments are not emitted as IR bytes; the image
         # references them at their guest vaddrs and the runtime maps the user's eboot there.
@@ -421,7 +423,7 @@ class Function:
                 occupied[byte] = address
             self.instructions[address] = ins
             next_address = address + ins.size
-            if ins.mnemonic in ('ret', 'ud2'):
+            if ins.mnemonic in ('ret', 'ud2', 'int3'):
                 successors = []
             elif ins.mnemonic == 'jmp' and address in self.image.finite_tables:
                 successors = self.image.finite_tables[address]['targets']
@@ -747,7 +749,7 @@ class Function:
                 if self.contract['result'] == 'ptr' and 'rax' not in state['native_pointers'] and state['constants'].get('rax') != 0:
                     self.fail_pointer(ins, 'pointer return has no proven native pointer origin')
             return state
-        if op == 'ud2':
+        if op in ('ud2', 'int3'):
             return state
         if op.startswith('j'):
             if op != 'jmp' and op[1:] not in CONDITIONS:
@@ -1579,8 +1581,10 @@ class Function:
             elif address in self.switch_jumps:
                 self.lower_switch(ins, state, address)
                 terminal = True
-            elif address in self.tail_calls and ins.mnemonic not in ('call', 'jmp'):
-                # Conditional tail call: taken -> tail call, not-taken -> fall through.
+            elif address in self.tail_calls and ins.mnemonic.startswith('j') and ins.mnemonic != 'jmp':
+                # Conditional tail call (jcc): taken -> tail call, not-taken -> fall through.
+                # A fall-through continuation (a non-branch last instruction) is unconditional
+                # and is handled by the tail-call branch below, not as a condition.
                 callee, slot = self.tail_calls[address]
                 require(abi.uniform(callee), 'conditional tail call requires a uniform callee')
                 label = f'ctc_{address:x}'
@@ -1597,7 +1601,8 @@ class Function:
                 else:
                     arguments = []
                     native_arguments = []
-                    for index, loc in enumerate(abi.locations(callee['parameters'])):
+                    parameter_locations = abi.locations(callee['parameters'])
+                    for index, loc in enumerate(parameter_locations):
                         if loc['kind'] == 'stack':
                             offset = loc['offset'] if tail else state['rsp'] + loc['offset'] - 8
                             value = self.emit(f"load i{loc['bits']}, ptr {self.frame_pointer(offset)}, align 1")
@@ -1608,6 +1613,27 @@ class Function:
                             checked_pointers.emit_argument(self, ins, index, callee, value)
                         arguments.append(f"{abi.parameter_type(loc['type'])} {value}")
                         native_arguments.append(value)
+                    hle_sequence = None
+                    if self.image.hle_log and not tail:
+                        hle_name = callee['name']
+                        if hle_name not in self.image.hle_names:
+                            self.image.hle_names[hle_name] = len(self.image.hle_names)
+                        hle_index = self.image.hle_names[hle_name]
+                        hle_args = []
+                        for index in range(6):
+                            if index >= len(native_arguments):
+                                hle_args.append('0')
+                                continue
+                            typ = parameter_locations[index]['type']
+                            if typ == 'ptr':
+                                hle_args.append(self.emit(f'ptrtoint ptr {native_arguments[index]} to i64'))
+                            elif typ in ('f32', 'f64'):
+                                hle_args.append('0')
+                            elif abi.bits(typ) == 64:
+                                hle_args.append(native_arguments[index])
+                            else:
+                                hle_args.append(self.emit(f'zext i{abi.bits(typ)} {native_arguments[index]} to i64'))
+                        hle_sequence = self.emit(f"call i64 @HleLogCall(ptr @__aps5_hle_name_{hle_index}, {', '.join('i64 ' + item for item in hle_args)})")
                     if slot == 'operand':
                         if address in self.image.finite_tables:
                             target = finite_tables.emit_target(self, ins, self.image.finite_tables[address])
@@ -1624,6 +1650,19 @@ class Function:
                         value = None
                     else:
                         value = self.emit(expression)
+                    if hle_sequence is not None:
+                        if value is None:
+                            self.lines.append(f'  call void @HleLogReturn(i64 {hle_sequence}, i64 0)')
+                        elif callee['result'] in ('i8', 'u8', 'i16', 'u16', 'i32', 'u32'):
+                            widened = self.emit(f"zext i{abi.bits(callee['result'])} {value} to i64")
+                            self.lines.append(f'  call void @HleLogReturn(i64 {hle_sequence}, i64 {widened})')
+                        elif callee['result'] == 'ptr':
+                            widened = self.emit(f'ptrtoint ptr {value} to i64')
+                            self.lines.append(f'  call void @HleLogReturn(i64 {hle_sequence}, i64 {widened})')
+                        elif abi.bits(callee['result']) == 64:
+                            self.lines.append(f'  call void @HleLogReturn(i64 {hle_sequence}, i64 {value})')
+                        else:
+                            self.lines.append(f'  call void @HleLogReturn(i64 {hle_sequence}, i64 0)')
                     if value is not None and not callee.get('noreturn'):
                         pointer_outputs.emit_checks(self, ins, callee, native_arguments, value)
                     if callee.get('noreturn'):
@@ -1672,7 +1711,7 @@ class Function:
                 if op == 'jmp': self.lines.append(f'  br label %b{target:x}')
                 else: self.lines.append(f'  br i1 {self.condition(op)}, label %b{target:x}, label %b{address + ins.size:x}')
                 terminal = True
-            elif op == 'ud2':
+            elif op in ('ud2', 'int3'):
                 self.lines.extend(['  call void @llvm.trap()', '  unreachable'])
                 terminal = True
             elif op != 'nop':
@@ -1907,6 +1946,13 @@ def compile_image(image):
     lines.extend(bodies)
     lines.extend(stub_function(spec, reason) for spec, reason in stubs)
     stubs.extend(late_stubs)
+    if image.hle_log:
+        lines.append('declare i64 @HleLogCall(ptr, i64, i64, i64, i64, i64, i64)')
+        lines.append('declare void @HleLogReturn(i64, i64)')
+        for hle_name, hle_index in image.hle_names.items():
+            raw = hle_name.encode() + b'\0'
+            encoded = ''.join(f'\\{byte:02X}' for byte in raw)
+            lines.append(f'@__aps5_hle_name_{hle_index} = private constant [{len(raw)} x i8] c"{encoded}", align 1')
     report = {'schema': 1, 'target': image.target, 'status': 'experimental_native_ir', 'input_sha256': hashlib.sha256(image.bytes).hexdigest(),
               'functions': [{'name': f.contract['name'], 'address': f.contract['address'], 'instructions': len(f.instructions),
                              'native_tail_calls': len(f.tail_calls),

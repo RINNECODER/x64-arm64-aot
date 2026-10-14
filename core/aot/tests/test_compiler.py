@@ -194,6 +194,22 @@ int main(void) {
         self.assertEqual(function(0xffffffffffffffff, 2), 1)
         self.assertEqual(report['imports'], 1)
 
+    def test_hle_log_import(self):
+        code = bytes.fromhex('e803000000c39090ff25f20f0000')
+        functions = [{'name': 'test_entry', 'address': 0x1000, 'size': 6, 'result': 'i64', 'parameters': ['i64', 'i64']}]
+        imports = {'exampleNid': {'name': 'native_add', 'result': 'i64', 'parameters': ['i64', 'i64']}}
+        raw, contracts = fixture(code, functions=functions, imports=imports)
+        contracts['hle_log'] = True
+        extra = ('unsigned long long HleLogCall(const char* name, unsigned long long a, unsigned long long b, unsigned long long c, '
+                 'unsigned long long d, unsigned long long e, unsigned long long f) { (void)name; (void)a; (void)b; (void)c; (void)d; (void)e; (void)f; return 7; }\n'
+                 'void HleLogReturn(unsigned long long sequence, unsigned long long result) { (void)sequence; (void)result; }\n'
+                 'unsigned long long native_add(unsigned long long a, unsigned long long b) { return a + b; }')
+        function, _, text = self.compile(raw, contracts, extra=extra)
+        self.assertIn('@HleLogCall', text)
+        self.assertIn('@HleLogReturn', text)
+        self.assertIn('__aps5_hle_name_0', text)
+        self.assertEqual(function(3, 4), 7)
+
     def test_data_relocation(self):
         code = bytes.fromhex('488d05f90f0000488b00488b00c3')
         raw, contracts = fixture(code, relocations=[[0x2000, 0x2008]])

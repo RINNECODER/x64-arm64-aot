@@ -185,6 +185,16 @@ class AtomicsTests(unittest.TestCase):
         for operation in ('add', 'sub', 'and', 'or', 'xor'):
             self.compare(f'lock {operation} QWORD PTR [rdi], rcx', self.samples())
 
+    def test_locked_arithmetic_immediate_sources(self):
+        # Every group-1 locked RMW with an immediate source, across widths, including the
+        # sign-extended imm8 form (opcode 83) and a full-width imm32/imm64 form.
+        cases = (('BYTE', '0xff'), ('WORD', '0x1234'), ('DWORD', '2'), ('DWORD', '0x80'),
+                 ('DWORD', '-1'), ('QWORD', '0x7f'), ('QWORD', '-8'), ('QWORD', '0x12345678'))
+        for operation in ('add', 'sub', 'and', 'or', 'xor'):
+            for width, immediate in cases:
+                with self.subTest(operation=operation, width=width, immediate=immediate):
+                    self.compare(f'lock {operation} {width} PTR [rdi], {immediate}', self.samples())
+
     def test_locked_bit_operations(self):
         # rcx bounded so the bit-string word stays inside the 64-byte buffer; 70 exercises word 1.
         for operation in ('bts', 'btr', 'btc'):

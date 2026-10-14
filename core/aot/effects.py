@@ -166,7 +166,12 @@ def infer_requirements(functions):
                 continue
             if ins.address in getattr(function, 'dispatch_calls', {}):
                 continue
-            contract, slot = image.call(ins, function.contract)
+            target = direct_target(function, ins)
+            if target is not None:
+                # A fall-through tail call has no operand; its callee comes from the tail-call map.
+                contract, slot = image.functions[target], None
+            else:
+                contract, slot = image.call(ins, function.contract)
             effects = contract.get('memory_effects')
             if type(slot) is int and effects is not None and not effects['callbacks']:
                 requirements[address].add(slot)

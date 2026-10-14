@@ -111,12 +111,16 @@ def analyze(function, ins, state):
         state['flags'] = {'zf', 'sf', 'of', 'pf'} | (state['flags'] & {'cf'})
         return True
     if op in LOCKED_RMW:
-        if register is None:
-            function.fail(ins, f'{op} requires a memory destination and a register source')
-        function.read_operand(ins, state, register)
+        source = ins.operands[1] if len(ins.operands) == 2 else None
+        if source is None or source.type not in (X86_OP_REG, X86_OP_IMM):
+            function.fail(ins, f'{op} requires a memory destination and a register or immediate source')
+        if op in ('lock xadd', 'xadd') and source.type != X86_OP_REG:
+            function.fail(ins, f'{op} requires a register source')
+        if source.type == X86_OP_REG:
+            function.read_operand(ins, state, source)
         function.define(ins, state, memory)
         if op in ('lock xadd', 'xadd'):
-            function.define(ins, state, register)
+            function.define(ins, state, source)
         state['flags'] = {'zf', 'sf', 'cf', 'of', 'pf'}
         return True
     if op in LOCKED_BIT:
@@ -197,7 +201,7 @@ def lower(function, ins):
         return True
     if op in LOCKED_RMW:
         operation = LOCKED_RMW[op]
-        value = function.read(ins, register, bits)
+        value = function.read(ins, args[1], bits)
         pointer = function.address(ins, memory)
         old = function.emit(f'atomicrmw {operation} ptr {pointer}, i{bits} {value} seq_cst, align {align}')
         new = function.emit(f'{operation} i{bits} {old}, {value}')

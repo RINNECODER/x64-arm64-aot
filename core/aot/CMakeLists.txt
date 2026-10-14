@@ -38,6 +38,7 @@ add_custom_target(native_aot ALL DEPENDS capstone_shared)
 add_library(anyps5_native_image STATIC "${CMAKE_SOURCE_DIR}/core/libs/native/NativeAotImage.cpp"
     "${CMAKE_SOURCE_DIR}/core/libs/native/NativeAotPointer.cpp"
     "${CMAKE_SOURCE_DIR}/core/libs/native/NativeAotDispatch.cpp"
+    "${CMAKE_SOURCE_DIR}/core/libs/native/HleLog.cpp"
     "${CMAKE_SOURCE_DIR}/core/libs/native/NativeAotAllocators.cpp"
     "${CMAKE_SOURCE_DIR}/core/libs/native/NativeAotTls.cpp"
     "${CMAKE_SOURCE_DIR}/core/libs/native/NativeAotBundle.cpp"

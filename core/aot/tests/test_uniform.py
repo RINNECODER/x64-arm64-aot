@@ -79,6 +79,8 @@ GPR = {'rax': 0, 'rcx': 1, 'rdx': 2, 'rbx': 3, 'rsp': 4, 'rbp': 5, 'rsi': 6, 'rd
 
 
 class UniformABITests(unittest.TestCase):
+    serial = 0
+
     def setUp(self):
         self.temporary = tempfile.TemporaryDirectory(prefix='anyps5-native-aot-')
         self.directory = Path(self.temporary.name)
@@ -193,6 +195,85 @@ class UniformABITests(unittest.TestCase):
         registers.gpr[GPR['rdi']] = 42
         function(ctypes.byref(registers))
         self.assertEqual(registers.gpr[GPR['rax']], 42)
+
+    def native_guest(self, code, rdi):
+        """Run the guest bytes natively (x86_64) and return rax, as a reference."""
+        UniformABITests.serial += 1
+        stem = self.directory / f'guest{UniformABITests.serial}'
+        source = stem.with_suffix('.S')
+        source.write_text('.intel_syntax noprefix\n.text\n.globl _run\n_run:\n  call guest\n  ret\nguest:\n'
+                          '  .byte ' + ', '.join(f'0x{byte:02x}' for byte in code) + '\n')
+        runner = stem.with_suffix('.c')
+        runner.write_text('#include <stdint.h>\n#include <stdio.h>\n'
+                          'extern uint64_t run(uint64_t);\n'
+                          'int main(void){uint64_t r;while(fread(&r,1,8,stdin)==8)printf("%llu\\n",(unsigned long long)run(r));return 0;}\n')
+        binary = stem.with_suffix('.x86')
+        subprocess.run(['xcrun', 'clang', '-arch', 'x86_64', '-O2', str(source), str(runner), '-o', str(binary)],
+                       check=True, capture_output=True)
+        output = subprocess.run([str(binary)], input=struct.pack('<Q', rdi), check=True, capture_output=True).stdout
+        return int(output.split()[0])
+
+    def test_uniform_adjusted_conditional_tail_call(self):
+        # 0x1000: push rbx ; mov rbx,rdi ; test rdi,rdi ; jne 0x1010 ; xor eax,eax ; pop rbx ; ret
+        # 0x1010: mov rax,rdi ; ret  — the jne tail call carries an unbalanced (adjusted) frame.
+        code = bytearray(0x14)
+        code[0x00:0x0D] = bytes.fromhex('534889fb4885ff750731c05bc3')
+        code[0x10:0x14] = bytes.fromhex('4889f8c3')
+        functions = [uniform_function('sub_1000', 0x1000, 0x10),
+                     uniform_function('sub_1010', 0x1010, 4)]
+        raw, contracts = fixture(bytes(code), functions)
+        function, ir, _ = self.compile(raw, contracts, 'sub_1000')
+        self.assertIn('call void @sub_1010(ptr %rf_out)', ir)
+        for argument, expected in ((42, 42), (0, 0)):
+            registers = RegisterFile()
+            registers.gpr[GPR['rdi']] = argument
+            function(ctypes.byref(registers))
+            self.assertEqual(registers.gpr[GPR['rax']], expected)
+
+    def test_uniform_fallthrough_tail_call_balanced_frame(self):
+        # 0x1000: mov rax,rdi ; nops ; cmp rax,0 (last, falls through)   0x1010: ret
+        code = bytearray(0x14)
+        code[0x00:0x03] = bytes.fromhex('4889f8')
+        code[0x03:0x0C] = bytes([0x90] * 9)
+        code[0x0C:0x10] = bytes.fromhex('4883f800')
+        code[0x10:0x11] = bytes.fromhex('c3')
+        functions = [uniform_function('sub_1000', 0x1000, 0x10),
+                     uniform_function('sub_1010', 0x1010, 1)]
+        raw, contracts = fixture(bytes(code), functions)
+        function, ir, _ = self.compile(raw, contracts, 'sub_1000')
+        self.assertIn('call void @sub_1010(ptr %rf_out)', ir)
+        registers = RegisterFile()
+        registers.gpr[GPR['rdi']] = 42
+        function(ctypes.byref(registers))
+        self.assertEqual(registers.gpr[GPR['rax']], self.native_guest(bytes(code), 42))
+
+    def test_uniform_fallthrough_tail_call_unbalanced_rejected(self):
+        # 0x1000: push rbx ; nops ; cmp rdi,0 (last, falls through)   0x1010: ret
+        code = bytearray(0x14)
+        code[0x00] = 0x53
+        code[0x01:0x0C] = bytes([0x90] * 11)
+        code[0x0C:0x10] = bytes.fromhex('4883ff00')
+        code[0x10:0x11] = bytes.fromhex('c3')
+        functions = [uniform_function('sub_1000', 0x1000, 0x10),
+                     uniform_function('sub_1010', 0x1010, 1)]
+        raw, contracts = fixture(bytes(code), functions)
+        with self.assertRaises(Exception):
+            self.compile(raw, contracts, 'sub_1000')
+
+    def test_int3_terminates_and_traps(self):
+        # 0x1000: push rbx ; nops ; int3    0x1010: ret — int3 is a trap terminator, not a
+        # fall-through tail call into the next function.
+        code = bytearray(0x14)
+        code[0x00] = 0x53
+        code[0x01:0x10] = bytes([0x90] * 15)
+        code[0x0F] = 0xCC
+        code[0x10:0x11] = bytes.fromhex('c3')
+        functions = [uniform_function('sub_1000', 0x1000, 0x10),
+                     uniform_function('sub_1010', 0x1010, 1)]
+        raw, contracts = fixture(bytes(code), functions)
+        function, ir, _ = self.compile(raw, contracts, 'sub_1000')
+        self.assertIn('call void @llvm.trap()', ir)
+        self.assertNotIn('call void @sub_1010', ir)
 
     def test_uniform_indirect_call_uses_the_declared_target_set(self):
         # 0x1000: call rax ; ret          0x1010: mov rax, rdi ; ret
