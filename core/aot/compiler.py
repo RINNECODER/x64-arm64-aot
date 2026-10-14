@@ -1983,34 +1983,36 @@ def stub_function(spec, reason):
                       '  call void @llvm.trap()', '  unreachable', '}'])
 
 
-def compile_image(image, sink=None, emit_bodies=True):
+def compile_image(image, sink=None, emit_bodies=True, analyze=True):
     """Lower the whole image to LLVM IR.
 
     With `sink`, the preamble, each body and each stub are written out as they are produced and
     the IR is not returned; a title's module is far too large to assemble in memory. With
     `emit_bodies` false only the preamble (plus the shared tables and helper) is emitted, which a
-    partitioned build links against one module of per-chunk bodies.
+    partitioned build links against one module of per-chunk bodies; `analyze` false also skips
+    discovery and dataflow, which the preamble does not need.
     """
     # A whole-title build sets allow_unimplemented so a rejected body becomes a reporting trap
     # stub instead of failing the image; the SDK samples keep the strict default.
     tolerant = bool(image.contracts.get('allow_unimplemented'))
     functions, stubs = [], []
-    for spec in image.functions.values():
-        if spec.get('stub'):
-            stubs.append((spec, 'declared stub'))
-            continue
-        try:
-            functions.append(Function(image, spec))
-        except Rejected as error:
-            if not tolerant:
-                raise
-            stubs.append((spec, str(error)))
-    def reject(function, error):
-        stubs.append((function.contract, str(error)))
-        function.rejected = True
-    # effects.analyze calls analyze() in callee order, which the pointer/effect summaries need.
-    effects.analyze(functions, reject=reject if tolerant else None)
-    functions = [function for function in functions if not getattr(function, 'rejected', False)]
+    if analyze:
+        for spec in image.functions.values():
+            if spec.get('stub'):
+                stubs.append((spec, 'declared stub'))
+                continue
+            try:
+                functions.append(Function(image, spec))
+            except Rejected as error:
+                if not tolerant:
+                    raise
+                stubs.append((spec, str(error)))
+        def reject(function, error):
+            stubs.append((function.contract, str(error)))
+            function.rejected = True
+        # effects.analyze calls analyze() in callee order, which the pointer/effect summaries need.
+        effects.analyze(functions, reject=reject if tolerant else None)
+        functions = [function for function in functions if not getattr(function, 'rejected', False)]
     try:
         descriptor = native_image.describe(image) if image.contracts.get('native_runtime_registration') else None
     except ValueError as error:

@@ -26,7 +26,7 @@ class AvxConvertTests(NativeAvxHarness):
                             'vcvttps2dq xmm0, xmm1', 'vcvttps2dq ymm0, ymm1',
                             'vcvtpd2dq xmm0, xmm1', 'vcvttpd2dq xmm0, xmm1',
                             'vcvtdq2ps xmm0, xmm1', 'vcvtdq2ps ymm0, ymm1',
-                            'vcvtpd2ps xmm0, xmm1', 'vcvtps2pd ymm0, xmm1'):
+                            'vcvtpd2ps xmm0, xmm1', 'vcvtps2pd xmm0, xmm1', 'vcvtps2pd ymm0, xmm1'):
             with self.subTest(instruction=instruction):
                 self.compare_native(instruction, self.samples())
 

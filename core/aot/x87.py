@@ -271,7 +271,7 @@ def _double(function, raw):
     sign = function.emit(f'shl i64 {sign}, 63')
     exponent = function.emit(f'lshr i80 {raw}, 64')
     exponent = function.emit(f'trunc i80 {exponent} to i64')
-    exponent = function.emit(f'and i64 {exponent}, 0x7fff')
+    exponent = function.emit(f'and i64 {exponent}, 32767')
     significand = function.emit(f'trunc i80 {raw} to i64')
     zero = function.emit(f'icmp eq i64 {exponent}, 0')
     biased = function.emit(f'sub i64 {exponent}, 15360')

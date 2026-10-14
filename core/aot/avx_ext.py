@@ -157,7 +157,10 @@ def lower(function, ins):
             result = function.emit(f'sitofp {kind} {value} to <{count} x double>')
             write(args[0], function.emit(f'bitcast <{count} x double> {result} to i{bits}'), bits)
         elif op == 'vcvtps2pd':
-            count = source_bits // 32
+            # The lane count comes from the destination: the 128-bit form widens two floats, the
+            # 256-bit form four, and only that many floats are read from the source.
+            count = bits // 64
+            source_bits = count * 32
             kind = f'<{count} x float>'
             value = function.emit(f'bitcast i{source_bits} {read(args[1], source_bits)} to {kind}')
             result = function.emit(f'fpext {kind} {value} to <{count} x double>')
