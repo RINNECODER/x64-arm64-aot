@@ -76,6 +76,22 @@ class HleLogTests(unittest.TestCase):
         self.assertEqual(code, 1)
         self.assertIn("first differing call 0: args", text)
 
+    def test_by_import_reports_argument_and_result_differences(self):
+        left = write_log(self.root / "left.log", [(7, "nidA", (1, 2), 0x10), (7, "nidB", (3,), 0x20)])
+        right = write_log(self.root / "right.log", [(7, "nidA", (1, 9), 0x10), (7, "nidC", (4,), 0x30)])
+        code, text = self.run_tool(left, right, "--by-import")
+        self.assertEqual(code, 1)
+        self.assertIn("arg1 0x2 vs 0x9", text)
+        self.assertIn("nidC: reached by the right run only", text)
+        self.assertIn("1 of 2 imports reached by the right run differ", text)
+
+    def test_by_import_matches_when_only_the_callee_order_differs(self):
+        left = write_log(self.root / "left.log", [(7, "nidA", (1,), 0x10), (7, "nidB", (2,), 0x20)])
+        right = write_log(self.root / "right.log", [(7, "nidB", (2,), 0x20), (7, "nidA", (1,), 0x10)])
+        code, text = self.run_tool(left, right, "--by-import")
+        self.assertEqual(code, 0)
+        self.assertIn("0 of 2 imports reached by the right run differ", text)
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -92,6 +92,58 @@ def pair_threads(left_counts, left_threads, right_counts, right_threads):
     return pairs, free
 
 
+def by_import(threads, counts, per_import):
+    """The first `per_import` calls of every import, in the order the run first reached it."""
+    result, order = {}, []
+    for thread in sorted(threads, key=lambda thread: -counts.get(thread, 0)):
+        for record in threads[thread]:
+            bucket = result.setdefault(record[0], [])
+            if not bucket:
+                order.append(record[0])
+            if len(bucket) < per_import:
+                bucket.append(record)
+    return order, result
+
+
+def compare_by_import(args, left, right, label, norm, show):
+    """Compare the first call of each import instead of the call sequence.
+
+    When the two engines do not reach the same code at all (a bounded native boot against a full
+    Rosetta run) the sequence diff can only say "call 0 differs". Comparing per import answers the
+    question that is still meaningful: for each import the native run did reach, do the arguments
+    and the return match what Rosetta passed and got?
+    """
+    left_order, left_calls = by_import(left[2], left[1], args.per_import)
+    right_order, right_calls = by_import(right[2], right[1], args.per_import)
+    differing, missing, matching = [], [], []
+    for name in right_order:
+        if name not in left_calls:
+            missing.append(name)
+            print(f"{label(name)}: reached by the right run only")
+            continue
+        first, second = left_calls[name][0], right_calls[name][0]
+        reasons = []
+        if norm(first[1]) != norm(second[1]):
+            for index, (one, two) in enumerate(zip(first[1], second[1])):
+                if norm((one,))[0] != norm((two,))[0]:
+                    reasons.append(f"arg{index} {hex(one)} vs {hex(two)}")
+        if first[2] is not None and second[2] is not None and first[2] != second[2]:
+            reasons.append(f"result {show(first[2])} vs {show(second[2])}")
+        if not reasons:
+            matching.append(name)
+            if not args.only_differences:
+                print(f"{label(name)}: same")
+            continue
+        differing.append(name)
+        print(f"{label(name)}")
+        print(f"  left : args={[hex(v) for v in first[1]]} result={show(first[2])}")
+        print(f"  right: args={[hex(v) for v in second[1]]} result={show(second[2])}")
+        print(f"  -> {'; '.join(reasons)}")
+    print(f"{len(differing)} of {len(right_order)} imports reached by the right run differ, "
+          f"{len(matching)} match, {len(missing)} are not in the left log")
+    return 1 if differing or missing else 0
+
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("left", type=Path)
@@ -101,10 +153,19 @@ def main():
     parser.add_argument("--align-minimum", type=int, default=3,
                         help="shared calls needed before an alignment is trusted")
     parser.add_argument("--ignore-pointer-args", action="store_true", help="ignore handle/pointer args")
+    parser.add_argument("--by-import", action="store_true",
+                        help="compare the first call of each import instead of the call sequence")
+    parser.add_argument("--per-import", type=int, default=1, help="calls kept per import in --by-import")
+    parser.add_argument("--only-differences", action="store_true",
+                        help="in --by-import, print only imports that differ")
     args = parser.parse_args()
     table = {}
     if args.names:
-        for key, contract in json.loads(args.names.read_text())["imports"].items():
+        names = json.loads(args.names.read_text())
+        # A contracts file carries an "imports" mapping; a flat NID-to-name map is also accepted.
+        entries = names["imports"].items() if "imports" in names else names.items()
+        for key, value in entries:
+            contract = value if isinstance(value, dict) else {"name": value}
             table[key.split("#", 1)[0]] = contract["name"].lstrip("_")
     left = read_log(args.left, args.per_thread)
     right = read_log(args.right, args.per_thread)
@@ -122,6 +183,9 @@ def main():
 
     def show(value):
         return "unknown" if value is None else hex(value)
+
+    if args.by_import:
+        return compare_by_import(args, left, right, label, norm, show)
 
     divergences = []
     for thread, other, score in pairs:
