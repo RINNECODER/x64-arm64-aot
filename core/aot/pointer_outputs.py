@@ -84,7 +84,7 @@ def refine(function, ins, state, target):
     result = dict(state)
     result['pending_outputs'] = frozenset()
     result['stack_pointers'] = state['stack_pointers'].copy()
-    result['image_pointers'] = state['image_pointers'].copy()
+    result['image_pointers'] = state['image_pointers']
     if ins.operands[0].imm == ins.address + ins.size:
         return state
     taken = target == ins.operands[0].imm
@@ -92,7 +92,10 @@ def refine(function, ins, state, target):
         success = ((predicate == 'zero' and ((ins.mnemonic == 'je' and taken) or (ins.mnemonic == 'jne' and not taken))) or
                    (predicate == 'nonnegative' and ((ins.mnemonic == 'jns' and taken) or (ins.mnemonic == 'js' and not taken))))
         if success:
-            result['stack_pointers' if kind == 'frame' else 'image_pointers'].add(offset)
+            if kind == 'frame':
+                result['stack_pointers'].add(offset)
+            else:
+                result['image_pointers'] = result['image_pointers'] | {offset}
     return result
 
 

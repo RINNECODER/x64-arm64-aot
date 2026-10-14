@@ -104,13 +104,14 @@ class Image:
             raise Rejected(str(error)) from error
         self.segments = []
         self.process_parameters = []
+        process_parameter_segments = []
         for segment in runtime_segments(self.elf):
             if segment['p_type'] == 0x61000001:
                 self.process_parameters.append((segment['p_vaddr'], segment['p_filesz']))
                 # The SCE process-parameter segment is not PT_LOAD but the runtime must map it and
                 # read the title's libc parameters and allocator table from it.
                 if segment['p_filesz'] and segment['p_memsz'] >= segment['p_filesz']:
-                    self.segments.append(segment)
+                    process_parameter_segments.append(segment)
                 continue
             if segment['p_type'] == 'PT_TLS':
                 require(segment['p_memsz'] == 0 or contracts.get('allow_unlowered_tls', False) or self.tls_layout is not None,
@@ -121,6 +122,14 @@ class Image:
             require(segment['p_offset'] + segment['p_filesz'] <= len(self.bytes), 'truncated segment')
             require(segment['p_memsz'] <= contracts.get('max_segment_bytes', 64 * 1024 * 1024),
                     'segment exceeds current offline allocation limit')
+            self.segments.append(segment)
+        for segment in process_parameter_segments:
+            # A process-parameter block a PT_LOAD already covers is mapped with it; mapping it
+            # again with MAP_FIXED would zero the rest of its page.
+            if any(other['p_type'] == 'PT_LOAD' and other['p_vaddr'] <= segment['p_vaddr']
+                   and segment['p_vaddr'] + segment['p_memsz'] <= other['p_vaddr'] + other['p_memsz']
+                   for other in self.segments):
+                continue
             self.segments.append(segment)
         self.functions = {}
         for function in contracts['functions']:
@@ -577,7 +586,9 @@ class Function:
         self.check_immutable_call(ins, callee, state, effects.call_writes(self, ins, state))
         if not effects.required_bindings(self, ins) <= state['import_bindings']:
             self.fail(ins, 'native callee requires original provider bindings')
-        if slot is not None and slot not in state['image_pointers']:
+        if slot is not None and slot not in state['image_pointers'] and not self.image.contracts.get('allow_unimplemented'):
+            # A whole-title build keeps the import binding installed by native_image_init even after
+            # the dataflow lost track of the GOT slot.
             self.fail(ins, 'import target has no proven native pointer origin')
         balanced = state['rsp'] == 0 and not state['saved']
         branch = ins.mnemonic in ('call', 'jmp') or ins.mnemonic.startswith('j')
@@ -1764,6 +1775,12 @@ def compile_image(image):
         lines.append('declare void @NativeAotRegisterDispatch_nid_no_patch(ptr, i64)')
     if stubs:
         lines.append('declare void @NativeAotReportUnimplemented_nid_no_patch(i64)')
+    process_parameters = image.contracts.get('title_process_parameters')
+    if process_parameters:
+        lines.append('declare void @NativeAotBindAllocator_nid_no_patch(ptr, i64, i64)')
+        # The heap is initialised from main, not this constructor: the title's allocator init calls
+        # runtime HLE whose namespace-scope containers are not constructed until after the ctors.
+        lines.append('declare void @NativeAotSetProcessParameters_nid_no_patch(ptr)')
     if image.contracts.get('count_entries'):
         ordered = sorted(image.functions.values(), key=lambda spec: spec['address'])
         addresses = ', '.join(f'i64 {image.guest_base + spec["address"]}' for spec in ordered)
@@ -1821,34 +1838,52 @@ def compile_image(image):
     if image.immutable_regions:
         lines.extend(immutable_data.declarations(image))
     unresolved_relocations = []
+    # A whole-title image has hundreds of thousands of pointer slots; one store per slot makes
+    # clang's initializer codegen pathologically slow and memory-hungry. Above a threshold the
+    # slots go into a constant table the runtime applies in a loop instead.
+    pointer_stores = []
+    for slot, target in image.relocations:
+        if slot in image.immutable_cells:
+            continue
+        try:
+            value = image.pointer(target)
+        except Rejected:
+            # A pointer into the middle of a function (jump-table entries) has no native
+            # function to name; leave the slot zero and report it instead of failing the image.
+            unresolved_relocations.append(hex(target))
+            continue
+        pointer_stores.append((image.pointer(slot, 8), value))
+    for slot, contract in image.import_slots.items():
+        if slot not in image.immutable_cells:
+            pointer_stores.append((image.pointer(slot, 8), f"@{contract['name']}"))
+    for slot, binding in image.data_import_slots.items():
+        if slot not in image.immutable_cells:
+            pointer_stores.append((image.pointer(slot, 8), f"@{binding['name']}"))
+    relocation_table = len(pointer_stores) > 1024
+    if relocation_table:
+        entries = ', '.join(f'{{ ptr, ptr }} {{ ptr {slot}, ptr {value} }}' for slot, value in pointer_stores)
+        lines.append(f'@__aps5_aot_relocations = private constant [{len(pointer_stores)} x {{ ptr, ptr }}] [{entries}], align 8')
+        lines.append('declare void @NativeAotApplyRelocations_nid_no_patch(ptr, i64)')
     if image.tls_layout or image.relocations or image.import_slots or image.data_import_slots or descriptor is not None or image.immutable_regions or dispatch_enabled:
         lines.extend(['@llvm.global_ctors = appending global [1 x { i32, ptr, ptr }] [{ i32, ptr, ptr } { i32 101, ptr @native_image_init, ptr null }]',
                       'define internal void @native_image_init() {'])
         if image.guest_data:
             lines.append(f'  call void @NativeAotMapImage_nid_no_patch(ptr @__aps5_aot_segments, i64 {len(image.segments)})')
-        for slot, target in image.relocations:
-            if slot in image.immutable_cells:
-                continue
-            try:
-                value = image.pointer(target)
-            except Rejected:
-                # A pointer into the middle of a function (jump-table entries) has no native
-                # function to name; leave the slot zero and report it instead of failing the image.
-                unresolved_relocations.append(hex(target))
-                continue
-            lines.append(f'  store ptr {value}, ptr {image.pointer(slot, 8)}, align 1')
-        for slot, contract in image.import_slots.items():
-            if slot in image.immutable_cells:
-                continue
-            lines.append(f"  store ptr @{contract['name']}, ptr {image.pointer(slot, 8)}, align 1")
-        for slot, binding in image.data_import_slots.items():
-            if slot in image.immutable_cells:
-                continue
-            lines.append(f"  store ptr @{binding['name']}, ptr {image.pointer(slot, 8)}, align 1")
+        if relocation_table:
+            lines.append(f'  call void @NativeAotApplyRelocations_nid_no_patch(ptr @__aps5_aot_relocations, i64 {len(pointer_stores)})')
+        else:
+            for slot, value in pointer_stores:
+                lines.append(f'  store ptr {value}, ptr {slot}, align 1')
         if dispatch_enabled:
             lines.append(f'  call void @NativeAotRegisterDispatch_nid_no_patch(ptr @__aps5_aot_dispatch, i64 {len(dispatch_entries)})')
         if image.contracts.get('count_entries'):
             lines.append(f'  call void @NativeAotRegisterEntryCounts_nid_no_patch(ptr @__aps5_aot_counts, i64 {len(image.functions)}, ptr @__aps5_aot_count_addresses)')
+        if process_parameters:
+            # Replace the title's allocator table entries with typed wrappers over its natively
+            # compiled guest functions, then let the runtime heap read the mapped parameters.
+            for binding in process_parameters['bindings']:
+                lines.append(f'  call void @NativeAotBindAllocator_nid_no_patch(ptr inttoptr (i64 {binding["slot"]} to ptr), i64 {binding["target"]}, i64 {binding["index"]})')
+            lines.append(f'  call void @NativeAotSetProcessParameters_nid_no_patch(ptr inttoptr (i64 {process_parameters["address"]} to ptr))')
         if image.tls_layout:
             lines.append(f"  call void @{module_tls.REGISTER}(ptr @{image.tls_layout['name']})")
         if image.immutable_regions:

@@ -137,6 +137,20 @@ extern "C" void NativeAotRegisterImage_nid_no_patch(const NativeAotImage* image)
         Require(previous == parameters, "a different native AOT main image is already registered");
 }
 
+extern "C" void NativeAotApplyRelocations_nid_no_patch(const void* const* table, std::size_t count) {
+    // A whole-title image puts its pointer slots in a flat {slot, value} table instead of one
+    // store per slot in the initializer; apply them after the data segments are mapped.
+    Require(table != nullptr || count == 0, "native AOT relocation table is null");
+    for (std::size_t index = 0; index < count; ++index)
+        *static_cast<void**>(const_cast<void*>(table[index * 2])) = const_cast<void*>(table[index * 2 + 1]);
+}
+
+extern "C" void NativeAotSetProcessParameters_nid_no_patch(const void* parameters) {
+    // Stored from the image's constructor and consumed by main, which initialises the heap after
+    // the runtime's namespace-scope containers exist.
+    processParameters.store(parameters, std::memory_order_release);
+}
+
 const void* ApplicationProcessParameters_nid_no_patch() {
     const auto* parameters = processParameters.load(std::memory_order_acquire);
     if (parameters == nullptr) throw std::runtime_error("native AOT process parameters have not been registered");
