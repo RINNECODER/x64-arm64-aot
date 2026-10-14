@@ -104,6 +104,37 @@ class BitOpReferenceTests(unittest.TestCase):
             with self.subTest(name=name):
                 self.compare(code, samples, ('cf',))
 
+    def test_rotates_immediate_and_register_counts(self):
+        randoms = random.Random(4422)
+        values = [0, 1, 2, 0x80, 0xff, 0x8000, 0x80000000, 0xffffffff, MASK64,
+                  0x123456789abcdef0, 1 << 63] + [randoms.getrandbits(64) for _ in range(30)]
+        counts = [0, 1, 2, 7, 8, 9, 15, 16, 17, 31, 32, 33, 63, 64, 65, 0x7f]
+        register = (('d2c0', 'rol al, cl'), ('d2c8', 'ror al, cl'), ('66d3c0', 'rol ax, cl'),
+                    ('66d3c8', 'ror ax, cl'), ('d3c0', 'rol eax, cl'), ('d3c8', 'ror eax, cl'),
+                    ('48d3c0', 'rol rax, cl'), ('48d3c8', 'ror rax, cl'),
+                    ('d2d0', 'rcl al, cl'), ('d2d8', 'rcr al, cl'), ('d3d0', 'rcl eax, cl'),
+                    ('d3d8', 'rcr eax, cl'), ('48d3d0', 'rcl rax, cl'), ('48d3d8', 'rcr rax, cl'))
+        for code, name in register:
+            with self.subTest(name=name):
+                self.compare(code, [(value, count, 0) for value in values for count in counts], ('cf',))
+        immediate = (('c0c000', 'rol al, 0'), ('c0c001', 'rol al, 1'), ('c0c81f', 'ror al, 31'),
+                     ('c0c008', 'rol al, 8'), ('c0c009', 'rol al, 9'),
+                     ('66c1c001', 'rol ax, 1'), ('66c1c83f', 'ror ax, 63'),
+                     ('c1c001', 'rol eax, 1'), ('c1c81f', 'ror eax, 31'), ('c1c100', 'rol ecx, 0'),
+                     ('48c1c001', 'rol rax, 1'), ('48c1c83f', 'ror rax, 63'),
+                     ('c1d001', 'rcl eax, 1'), ('c1d83f', 'rcr eax, 63'), ('48c1d001', 'rcl rax, 1'))
+        for code, name in immediate:
+            with self.subTest(name=name):
+                self.compare(code, [(value, 0, 0) for value in values], ('cf',))
+        # OF is defined only for a count of one.
+        for code, name in (('d3c0', 'rol eax, cl'), ('d3c8', 'ror eax, cl'),
+                           ('48d3c0', 'rol rax, cl'), ('48d3c8', 'ror rax, cl')):
+            with self.subTest(name=name + ' count 1'):
+                self.compare(code, [(value, 1, 0) for value in values], ('cf', 'of'))
+        for code, name in (('c0c001', 'rol al, 1'), ('c1c001', 'rol eax, 1'), ('48c1c001', 'rol rax, 1')):
+            with self.subTest(name=name):
+                self.compare(code, [(value, 0, 0) for value in values], ('cf', 'of'))
+
     def test_bit_scan(self):
         randoms = random.Random(882)
         values = [0, 1, 2, 3, 1 << 63, MASK64] + [randoms.getrandbits(64) for _ in range(60)]

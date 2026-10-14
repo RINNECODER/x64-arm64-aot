@@ -127,16 +127,26 @@ class IntegerTests(unittest.TestCase):
                                 self.assertEqual(flags['cf'], int(bool(old)))
                                 self.assertEqual(flags['of'], int(bool(old)))
 
-    def test_rotate_undefined_overflow_and_dynamic_count_reject(self):
+    def test_rotate_undefined_overflow_and_dynamic_count(self):
         ins = self.decode('66c1c008')
         harness = Harness(ins)
         state = harness.states[ins.address]
         integer.analyze(harness, ins, state)
         self.assertNotIn('of', state['flags'])
+        # A cl count is supported: CF is always defined, OF only for a masked count of one.
         ins = self.decode('48d3c0')
         harness = Harness(ins)
-        with self.assertRaisesRegex(Rejected, 'immediate count'):
-            integer.analyze(harness, ins, harness.states[ins.address])
+        state = harness.states[ins.address]
+        integer.analyze(harness, ins, state)
+        self.assertIn('cf', state['flags'])
+        self.assertNotIn('of', state['flags'])
+        # A rotate through carry needs the incoming CF.
+        ins = self.decode('d3d0')
+        harness = Harness(ins)
+        state = harness.states[ins.address]
+        state['flags'] = set()
+        with self.assertRaisesRegex(Rejected, 'carry input'):
+            integer.analyze(harness, ins, state)
 
     def test_byte_swap_width_and_flags(self):
         randoms = random.Random(34098)

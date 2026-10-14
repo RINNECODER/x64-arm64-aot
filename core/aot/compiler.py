@@ -1794,6 +1794,10 @@ def compile_image(image, sink=None):
         lines.append(f'declare i{width} @llvm.ctlz.i{width}(i{width}, i1)')
         lines.append(f'declare i{width} @llvm.cttz.i{width}(i{width}, i1)')
         lines.append(f'declare i{width} @llvm.bswap.i{width}(i{width})')
+    # Rotates: rol/ror on the operand width, rcl/rcr on the carry-extended width + 1.
+    for width in (8, 16, 32, 64, 9, 17, 33, 65):
+        lines.append(f'declare i{width} @llvm.fshl.i{width}(i{width}, i{width}, i{width})')
+        lines.append(f'declare i{width} @llvm.fshr.i{width}(i{width}, i{width}, i{width})')
     for lanes in (2, 4, 8):
         lines.append(f'declare <{lanes} x float> @llvm.fma.v{lanes}f32(<{lanes} x float>, <{lanes} x float>, <{lanes} x float>)')
     for lanes in (2, 4):

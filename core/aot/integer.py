@@ -9,7 +9,7 @@ CONDITIONS = {
 }
 ALIASES = {'z': 'e', 'nz': 'ne', 'c': 'b', 'nc': 'ae', 'na': 'be', 'nbe': 'a',
            'nb': 'ae', 'nae': 'b', 'ng': 'le', 'nge': 'l', 'nl': 'ge', 'nle': 'g', 'pe': 'p', 'po': 'np'}
-ROTATES = {'rol', 'ror'}
+ROTATES = {'rol', 'ror', 'rcl', 'rcr'}
 SHIFTS = {'shl', 'sal', 'shr', 'sar'}
 OPERATIONS = {'inc', 'dec', 'imul', 'sbb', 'adc', 'cdqe', 'cdq', 'cwd', 'cqo', 'neg', 'not', 'div', 'idiv', 'blsr', 'bt', 'bts', 'btr', 'btc', 'bsf', 'bsr', 'mul', 'cwde', 'bswap',
               'shld', 'shrd', 'cld', 'std',
@@ -182,11 +182,24 @@ def analyze(function, ins, state):
         function.fail(ins, 'carry input is not defined')
     if op in ROTATES:
         width = args[0].size * 8
-        if len(args) != 2 or width not in (8, 16, 32, 64) or args[1].type != X86_OP_IMM:
-            function.fail(ins, 'rotate requires a qualified immediate count')
-        count = args[1].imm & (63 if width == 64 else 31)
-        if count:
-            state['flags'] = (state['flags'] - {'cf', 'of'}) | {'cf'} | ({'of'} if count == 1 else set())
+        if len(args) != 2 or width not in (8, 16, 32, 64):
+            function.fail(ins, 'unsupported rotate operands')
+        dynamic = args[1].type == X86_OP_REG
+        if (op in ('rcl', 'rcr') or dynamic) and 'cf' not in state['flags']:
+            # A zero count leaves CF unchanged, so the incoming carry must be defined.
+            function.fail(ins, 'rotate carry input is not defined')
+        if args[1].type == X86_OP_IMM:
+            count = args[1].imm & (63 if width == 64 else 31)
+            if count:
+                # ROL/ROR define OF only for a count of one; RCL/RCR are left undefined here.
+                defined = {'of'} if count == 1 and op in ('rol', 'ror') else set()
+                state['flags'] = (state['flags'] - {'cf', 'of'}) | {'cf'} | defined
+        elif dynamic and function.reg(ins, args[1])[0] == 'rcx':
+            # A dynamic count: CF is always defined, OF only when the masked count is one.
+            function.read_operand(ins, state, args[1])
+            state['flags'] = (state['flags'] - {'of'}) | {'cf'}
+        else:
+            function.fail(ins, f'{op} requires an immediate or cl count')
         function.define(ins, state, args[0])
         return True
     if op in SHIFTS:
@@ -281,25 +294,51 @@ def lower_shift(function, ins):
 
 
 def lower_rotate(function, ins):
-    args = ins.operands
+    args, op = ins.operands, ins.mnemonic
     width = args[0].size * 8
-    count = args[1].imm & (63 if width == 64 else 31)
+    mask = 63 if width == 64 else 31
+    if args[1].type == X86_OP_IMM:
+        fixed = args[1].imm & mask
+        count = str(fixed)
+    else:
+        loaded = function.read(ins, args[1], 8)
+        loaded = function.emit(f'and i8 {loaded}, {mask}')
+        count = loaded if width == 8 else function.emit(f'zext i8 {loaded} to i{width}')
+        fixed = None
     value = function.read(ins, args[0])
-    shift = count % width
-    result = value
-    if shift:
-        left, right = (shift, width - shift) if ins.mnemonic == 'rol' else (width - shift, shift)
-        high = function.emit(f'shl i{width} {value}, {left}')
-        low = function.emit(f'lshr i{width} {value}, {right}')
-        result = function.emit(f'or i{width} {high}, {low}')
-    if count:
+    if fixed == 0:
+        # A zero count is a no-op for the operand and every flag.
+        function.write(ins, args[0], value)
+        return
+    if op in ('rol', 'ror'):
+        # A funnel shift is a rotate and takes the count modulo the width, including 0.
+        name = 'fshl' if op == 'rol' else 'fshr'
+        result = function.emit(f'call i{width} @llvm.{name}.i{width}(i{width} {value}, i{width} {value}, i{width} {count})')
         high = function.emit(f'icmp slt i{width} {result}, 0')
-        carry = function.emit(f'trunc i{width} {result} to i1') if ins.mnemonic == 'rol' else high
+        carry = function.emit(f'trunc i{width} {result} to i1') if op == 'rol' else high
+        if fixed is None:
+            previous = load_flag(function, 'cf')
+            zero = function.emit(f'icmp eq i{width} {count}, 0')
+            carry = function.emit(f'select i1 {zero}, i1 {previous}, i1 {carry}')
         store_flag(function, 'cf', carry)
-        if count == 1:
-            other = carry if ins.mnemonic == 'rol' else function.emit(f'icmp ne i{width} ' +
-                function.emit(f'and i{width} {result}, {1 << (width - 2)}') + ', 0')
-            store_flag(function, 'of', function.emit(f'xor i1 {high}, {other}'))
+        # OF is defined only for a count of one; the analysis drops it otherwise.
+        other = carry if op == 'rol' else function.emit(f'icmp ne i{width} ' +
+            function.emit(f'and i{width} {result}, {1 << (width - 2)}') + ', 0')
+        store_flag(function, 'of', function.emit(f'xor i1 {high}, {other}'))
+    else:
+        # Rotate the (width + 1)-bit value (carry:value); CF is the bit rotated back out.
+        wide = width + 1
+        carry_in = load_flag(function, 'cf')
+        extended = function.emit(f'zext i{width} {value} to i{wide}')
+        bit = function.emit(f'zext i1 {carry_in} to i{wide}')
+        bit = function.emit(f'shl i{wide} {bit}, {width}')
+        joined = function.emit(f'or i{wide} {extended}, {bit}')
+        wide_count = count if wide == 8 else function.emit(f'zext i{width} {count} to i{wide}')
+        name = 'fshl' if op == 'rcl' else 'fshr'
+        rotated = function.emit(f'call i{wide} @llvm.{name}.i{wide}(i{wide} {joined}, i{wide} {joined}, i{wide} {wide_count})')
+        result = function.emit(f'trunc i{wide} {rotated} to i{width}')
+        carry_out = function.emit(f'lshr i{wide} {rotated}, {width}')
+        store_flag(function, 'cf', function.emit(f'trunc i{wide} {carry_out} to i1'))
     function.write(ins, args[0], result)
 
 
