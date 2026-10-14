@@ -69,6 +69,12 @@ foreach(component IN LISTS nativeComponents)
     endif()
 endforeach()
 
+# The native image links libc and libkernel into one binary and both define exit_nid_postfix.
+# libc's implementation (with APS5_TRACE_EXIT) is the one the guest uses, so the libkernel copy is
+# compiled out here; the Rosetta path still builds libkernel's own prx unchanged.
+set_source_files_properties("${LIBS_INCLUDE_DIR}/prx/libkernel/System/src/Process.cpp"
+    PROPERTIES COMPILE_DEFINITIONS "APS5_NATIVE_LIBC_OWNS_EXIT=1")
+
 # Metal libSceAgcDriver and libSceVideoOut (cmake/RosettaGraphics.cmake source lists, arm64 static).
 set(aotAgcDriver ${LIBS_INCLUDE_DIR}/prx/libSceAgcDriver)
 target_sources(anyps5_native_graphics PRIVATE
