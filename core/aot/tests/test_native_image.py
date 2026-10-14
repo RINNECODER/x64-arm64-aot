@@ -16,7 +16,8 @@ class NativeImageTests(unittest.TestCase):
         pairs = [[0x2638, 0x2640], [0x2670, 0x2680]] if relocations is None else relocations
         if callback:
             pairs = pairs + [[0x2690, 0x1000]]
-        raw, contracts = test_compiler.fixture(bytes.fromhex('31c0c3') if result != 'void' else b'\xc3', result=result, relocations=pairs)
+        raw, contracts = test_compiler.fixture(bytes.fromhex('31c0c3') if result != 'void' else b'\xc3', result=result,
+                                              parameters=['ptr'] if callback else None, relocations=pairs)
         raw = bytearray(raw)
         struct.pack_into('<H', raw, 56, 4)
         struct.pack_into('<IIQQQQQQ', raw, 232, 0x61000001, 4, 0x2600, 0x2600, 0, 0x40, 0x40, 8)
@@ -41,7 +42,7 @@ class NativeImageTests(unittest.TestCase):
         obj = self.directory / 'module.o'
         build_native_object(ir, obj)
         main = self.directory / 'main.cpp'
-        main.write_text('#include "prx/libc/include/ApplicationHeap.hpp"\n#include <cstdint>\n#include <cstring>\n#include <sys/sysctl.h>\nextern "C" void test_entry();\nint main() { int translated=0; std::size_t size=sizeof(translated); if (sysctlbyname("sysctl.proc_translated", &translated, &size, nullptr, 0)==0 && translated) return 1; const auto* process=static_cast<const unsigned char*>(ApplicationProcessParameters_nid_no_patch()); std::uint32_t magic; std::memcpy(&magic,process+8,4); if(magic!=0x4942524f) return 2; const unsigned char* libc; std::memcpy(&libc,process+0x38,8); const unsigned char* replacement; std::memcpy(&replacement,libc+0x30,8); void(*callback)(); std::memcpy(&callback,replacement+0x10,8); if(callback!=test_entry) return 3; callback(); return 0; }\n')
+        main.write_text('#include "prx/libc/include/ApplicationHeap.hpp"\n#include <cstdint>\n#include <cstring>\n#include <sys/sysctl.h>\nextern "C" void test_entry(const void*);\nint main() { int translated=0; std::size_t size=sizeof(translated); if (sysctlbyname("sysctl.proc_translated", &translated, &size, nullptr, 0)==0 && translated) return 1; const auto* process=static_cast<const unsigned char*>(ApplicationProcessParameters_nid_no_patch()); std::uint32_t magic; std::memcpy(&magic,process+8,4); if(magic!=0x4942524f) return 2; const unsigned char* libc; std::memcpy(&libc,process+0x38,8); const unsigned char* replacement; std::memcpy(&replacement,libc+0x30,8); void(*callback)(const void*); std::memcpy(&callback,replacement+0x10,8); if(callback!=test_entry) return 3; callback(process); return 0; }\n')
         root = Path(__file__).resolve().parents[3]
         binary = self.directory / 'native-image'
         subprocess.run(['xcrun', 'clang++', '-arch', 'arm64', '-std=c++20', '-O2', '-I', str(root/'core/libs'), str(main), str(obj), str(root/'core/libs/native/NativeAotImage.cpp'), '-o', str(binary)], check=True, capture_output=True)

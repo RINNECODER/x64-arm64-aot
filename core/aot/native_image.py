@@ -4,7 +4,7 @@ from calls import structural_signature
 
 
 CALLBACKS = [
-    ('void', []), ('void', []),
+    ('void', ['ptr']), ('void', ['ptr']),
     ('ptr', ['u64']), ('void', ['ptr']), ('ptr', ['u64', 'u64']),
     ('ptr', ['ptr', 'u64']), ('ptr', ['u64', 'u64']),
     ('ptr', ['ptr', 'u64', 'u64']), ('i32', ['ptr', 'u64', 'u64']),

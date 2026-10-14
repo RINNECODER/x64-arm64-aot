@@ -21,7 +21,7 @@ using Calloc = void* (APS5_VABI *)(std::size_t, std::size_t);
 using Align = void* (APS5_VABI *)(std::size_t, std::size_t);
 using Realign = void* (APS5_VABI *)(void*, std::size_t, std::size_t);
 using PosixAlign = int (APS5_VABI *)(void**, std::size_t, std::size_t);
-using Initialize = void (APS5_VABI *)();
+using Initialize = void (APS5_VABI *)(const void*);
 using Stats = int (APS5_VABI *)(void*);
 using UsableSize = std::size_t (APS5_VABI *)(void*);
 
@@ -104,7 +104,7 @@ void finalize() {
         if (heapFinalized || heapFailure) return;
         finalizeCallback = heapFinalize;
     }
-    if (finalizeCallback != nullptr) finalizeCallback();
+    if (finalizeCallback != nullptr) finalizeCallback(heapApi.data());
     std::lock_guard lock(heapMutex);
     heapFinalized = true;
 }
@@ -148,7 +148,7 @@ void ApplicationHeapInitialize_nid_no_patch(const void* processParameters) {
             std::memcpy(api.data(), static_cast<const std::byte*>(replacement) + 0x20, sizeof(api));
             ApplicationHeapRegister_nid_no_patch(api.data());
             const auto initialize = read<Initialize>(replacement, 0x10);
-            if (initialize != nullptr) initialize();
+            if (initialize != nullptr) initialize(heapApi.data());
             {
                 std::lock_guard lock(heapMutex);
                 heapFinalize = read<Initialize>(replacement, 0x18);
