@@ -181,6 +181,30 @@ class UniformABITests(unittest.TestCase):
         function(ctypes.byref(registers))
         self.assertEqual(registers.gpr[GPR['r13']], 0x1234)
 
+    def test_uniform_bmi_destination_on_a_frame_register(self):
+        # andn ebp, r15d, ebp ; mov eax, ebp ; ret. The scalar ABI cannot put an arbitrary value into a
+        # frame register; the uniform ABI keeps the guest frame registers in the register file, where
+        # the destination is an ordinary slot that only loses its frame meaning.
+        code = bytes.fromhex('c4e200f2ed89e8c3')
+        raw, contracts = fixture(code, [uniform_function('sub_1000', 0x1000, len(code))])
+        function, ir, _ = self.compile(raw, contracts, 'sub_1000')
+        registers = RegisterFile()
+        registers.gpr[GPR['r15']] = 0x0f0f0f0f
+        registers.gpr[GPR['rbp']] = 0x00ff00ff
+        function(ctypes.byref(registers))
+        self.assertEqual(registers.gpr[GPR['rax']], ~0x0f0f0f0f & 0x00ff00ff)
+
+    def test_uniform_restores_rsp_from_a_frame_slot(self):
+        # mov rbp, rsp ; sub rsp, 0x20 ; mov [rsp], rbp ; mov [rbp-8], 0x1234 ;
+        # mov rsp, [rsp] ; mov rax, [rbp-8] ; mov rsp, rbp ; ret. The frame pointer is loaded back out
+        # of memory, so the frame is runtime-sized from there on and the load cannot be a frame offset.
+        code = bytes.fromhex('4889e54883ec2048892c2448c745f834120000488b2424488b45f84889ecc3')
+        raw, contracts = fixture(code, [uniform_function('sub_1000', 0x1000, len(code))])
+        function, ir, _ = self.compile(raw, contracts, 'sub_1000')
+        registers = RegisterFile()
+        function(ctypes.byref(registers))
+        self.assertEqual(registers.gpr[GPR['rax']], 0x1234)
+
     def test_uniform_pointer_argument_loads_the_register_not_an_undefined_arg(self):
         # mov rax, [rdi] ; ret -> rax = *(u64*)rdi. The uniform ABI keeps rdi in its
         # own alloca; a pointer dereference must use that value, not a typed %argN.

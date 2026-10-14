@@ -32,6 +32,7 @@ X86_RUNNER = r"""
 #include <sys/mman.h>
 #define BASE 0x140000000ULL
 struct regs { uint64_t r[16]; };
+uint64_t invoke_frame;  /* the trampoline's own frame base, which the guest may clobber */
 extern uint64_t invoke(void* entry, struct regs* in, struct regs* out, uint64_t* stack, uint64_t stack_words);
 __asm__(
 ".text\n"
@@ -47,10 +48,13 @@ __asm__(
 "  movq -64(%rbp), %r10\n"
 "  movq 0(%r10), %rax\n  movq 8(%r10), %rbx\n  movq 16(%r10), %rcx\n  movq 24(%r10), %rdx\n"
 "  movq 32(%r10), %rsi\n  movq 40(%r10), %rdi\n"
-"  movq 64(%r10), %r8\n  movq 72(%r10), %r9\n  movq 80(%r10), %r11\n"
-"  movq 88(%r10), %r12\n  movq 96(%r10), %r13\n  movq 104(%r10), %r14\n  movq 112(%r10), %r15\n"
+"  movq 64(%r10), %r8\n  movq 72(%r10), %r9\n"
+"  movq 88(%r10), %r11\n  movq 96(%r10), %r12\n  movq 104(%r10), %r13\n  movq 112(%r10), %r14\n  movq 120(%r10), %r15\n"
+"  movq 80(%r10), %r10\n"
+"  movq %rbp, _invoke_frame(%rip)\n"
 "  movq -56(%rbp), %r11\n"
 "  callq *%r11\n"
+"  movq _invoke_frame(%rip), %rbp\n"
 "  movq -48(%rbp), %r9\n"
 "  movq %rax, 0(%r9)\n  movq %rbx, 8(%r9)\n  movq %rcx, 16(%r9)\n  movq %rdx, 24(%r9)\n"
 "  movq %rsi, 32(%r9)\n  movq %rdi, 40(%r9)\n  movq %r8, 64(%r9)\n"

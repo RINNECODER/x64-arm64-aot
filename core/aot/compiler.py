@@ -771,8 +771,9 @@ class Function:
             if state['rsp'] != 0 or state['saved']:
                 # The uniform ABI keeps the guest rsp in the register file and the native frame is the
                 # compiler's own alloca, so a runtime-sized guest rsp at the return unbalances nothing
-                # natively; the scalar ABI's native frame is the guest frame, so it still must balance.
-                if not (self.uniform and state['rsp'] is None and not state['saved']):
+                # natively and the saved-slot bookkeeping for it is stale; the scalar ABI's native frame
+                # is the guest frame, so it still must balance.
+                if not (self.uniform and state['rsp'] is None):
                     self.fail(ins, 'unbalanced native frame')
             if self.contract['result'] != 'void':
                 self.check_register(ins, state, abi.return_register(self.contract['result']), abi.bits(self.contract['result']))
@@ -839,6 +840,11 @@ class Function:
                           and (args[1].mem.index or ins.reg_name(args[1].mem.base) in ('rsp', 'rbp'))):
                         # An indexed adjustment of the guest rsp, e.g. the `lea rsp, [rsp + rcx*8 + 8]`
                         # a dynamic-allocation thunk uses to give the stack back: still a dynamic frame.
+                        state[dest] = None
+                    elif self.uniform and op == 'mov' and args[0].size == 8 and args[1].type == X86_OP_MEM:
+                        # Loading a frame pointer back from memory. The loaded value is a runtime value,
+                        # so the frame is runtime-sized from here on; the load itself is read_operand's
+                        # business and does not need a known frame offset.
                         state[dest] = None
                     else:
                         self.fail(ins, 'unsupported frame manipulation')

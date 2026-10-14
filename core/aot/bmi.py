@@ -14,10 +14,18 @@ BIT_COUNT = {'popcnt', 'lzcnt', 'tzcnt'}
 SHIFT = {'shlx': 'shl', 'shrx': 'lshr', 'sarx': 'ashr'}
 
 
-def _general(function, ins, operand, label):
-    if operand.type != X86_OP_REG or function.reg(ins, operand)[0] in ('rsp', 'rbp'):
+def _general(function, ins, state, operand, label):
+    if operand.type != X86_OP_REG:
         function.fail(ins, f'{label} requires a general-purpose register')
-    return function.reg(ins, operand)[0]
+    name = function.reg(ins, operand)[0]
+    if name in ('rsp', 'rbp'):
+        # The scalar ABI's native frame is the guest frame, so an arbitrary value there is not
+        # representable. The uniform ABI keeps the guest frame registers in the register file, where
+        # the destination is an ordinary slot that simply loses its frame meaning.
+        if not function.uniform:
+            function.fail(ins, f'{label} requires a general-purpose register')
+        state[name] = None
+    return name
 
 
 def analyze(function, ins, state):
@@ -28,7 +36,7 @@ def analyze(function, ins, state):
     if op in ('andn', 'bextr', 'bzhi') or op in SHIFT:
         if len(args) != 3 or args[0].type != X86_OP_REG:
             function.fail(ins, f'{op} requires three operands')
-        _general(function, ins, args[0], op)
+        _general(function, ins, state, args[0], op)
         for operand in args[1:]:
             function.read_operand(ins, state, operand)
         function.define(ins, state, args[0])
@@ -42,8 +50,8 @@ def analyze(function, ins, state):
     if op == 'mulx':
         if len(args) != 3 or args[0].type != X86_OP_REG or args[1].type != X86_OP_REG:
             function.fail(ins, 'mulx requires two register destinations')
-        _general(function, ins, args[0], op)
-        _general(function, ins, args[1], op)
+        _general(function, ins, state, args[0], op)
+        _general(function, ins, state, args[1], op)
         function.check_register(ins, state, 'rdx', width)
         function.read_operand(ins, state, args[2])
         function.define(ins, state, args[0])
@@ -52,14 +60,14 @@ def analyze(function, ins, state):
     if op == 'rorx':
         if len(args) != 3 or args[0].type != X86_OP_REG or args[2].type != X86_OP_IMM:
             function.fail(ins, 'rorx requires a register destination and an immediate count')
-        _general(function, ins, args[0], op)
+        _general(function, ins, state, args[0], op)
         function.read_operand(ins, state, args[1])
         function.define(ins, state, args[0])
         return True
     if op in BIT_COUNT:
         if len(args) != 2 or args[0].type != X86_OP_REG:
             function.fail(ins, f'{op} requires a register destination')
-        _general(function, ins, args[0], op)
+        _general(function, ins, state, args[0], op)
         function.read_operand(ins, state, args[1])
         function.define(ins, state, args[0])
         state['flags'] = {'zf', 'cf'} if op in ('lzcnt', 'tzcnt') else {'zf'}
@@ -79,7 +87,7 @@ def analyze(function, ins, state):
     if op in ('rol', 'ror'):
         if len(args) != 2 or args[0].type != X86_OP_REG or args[0].size not in (1, 2, 4, 8):
             function.fail(ins, f'unsupported {op} operands')
-        _general(function, ins, args[0], op)
+        _general(function, ins, state, args[0], op)
         function.read_operand(ins, state, args[0])
         function.read_operand(ins, state, args[1])
         function.define(ins, state, args[0])
