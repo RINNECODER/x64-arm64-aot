@@ -23,9 +23,20 @@ RECORD = 80
 
 
 def read_log(path, per_thread):
-    """Stream one log; return (calls, calls-per-thread, {thread: [(name, args, result)]}, names)."""
-    handle = open(path, "rb")
-    magic, version = struct.unpack("<II", handle.read(8))
+    """Stream one log; return (calls, calls-per-thread, {thread: [(name, args, result)]}, names, note).
+
+    A missing file is a result, not an error: an engine that never reached the HLE boundary leaves no
+    log, and that is exactly what the comparison has to report.
+    """
+    try:
+        handle = open(path, "rb")
+    except FileNotFoundError:
+        return 0, {}, {}, {}, "not recorded"
+    header = handle.read(8)
+    if len(header) < 8:
+        handle.close()
+        return 0, {}, {}, {}, "empty"
+    magic, version = struct.unpack("<II", header)
     if magic != MAGIC:
         raise SystemExit(f"{path}: bad magic {magic:#x}")
     calls, counts, threads, names, pending = 0, {}, {}, {}, {}
@@ -49,7 +60,7 @@ def read_log(path, per_thread):
             record = pending.pop(sequence, None)
             if record is not None:
                 record[2], = struct.unpack_from("<Q", head, 72)
-    return calls, counts, threads, names
+    return calls, counts, threads, names, "ok"
 
 
 def shared_prefix(left, left_start, right, right_start):
@@ -169,8 +180,12 @@ def main():
             table[key.split("#", 1)[0]] = contract["name"].lstrip("_")
     left = read_log(args.left, args.per_thread)
     right = read_log(args.right, args.per_thread)
-    print(f"left : {left[0]} calls, {len(left[1])} threads, {len(left[3])} distinct imports")
-    print(f"right: {right[0]} calls, {len(right[1])} threads, {len(right[3])} distinct imports")
+    print(f"left : {left[0]} calls, {len(left[1])} threads, {len(left[3])} distinct imports ({left[4]})")
+    print(f"right: {right[0]} calls, {len(right[1])} threads, {len(right[3])} distinct imports ({right[4]})")
+    if left[0] and not right[0]:
+        print(f"the right log recorded no import call ({right[4]}); the left run made {left[0]} calls, so "
+              f"every import the right run reached is unreached — the largest possible divergence")
+        return 1
     pairs, unpaired = pair_threads(left[1], left[2], right[1], right[2])
 
     def label(name):

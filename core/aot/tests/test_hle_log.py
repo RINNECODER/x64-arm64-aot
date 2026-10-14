@@ -92,6 +92,27 @@ class HleLogTests(unittest.TestCase):
         self.assertEqual(code, 0)
         self.assertIn("0 of 2 imports reached by the right run differ", text)
 
+    def test_missing_right_log_is_a_divergence_not_an_error(self):
+        left = write_log(self.root / "left.log", [(7, "nidA", (1,), 0)])
+        code, text = self.run_tool(left, self.root / "absent.log")
+        self.assertEqual(code, 1)
+        self.assertIn("not recorded", text)
+        self.assertIn("recorded no import call", text)
+
+    def test_empty_right_log_is_a_divergence_not_an_error(self):
+        left = write_log(self.root / "left.log", [(7, "nidA", (1,), 0)])
+        (self.root / "right.log").write_bytes(b"")
+        code, text = self.run_tool(left, self.root / "right.log", "--by-import")
+        self.assertEqual(code, 1)
+        self.assertIn("recorded no import call (empty)", text)
+
+    def test_header_only_right_log_is_a_divergence_not_an_error(self):
+        left = write_log(self.root / "left.log", [(7, "nidA", (1,), 0)])
+        right = write_log(self.root / "right.log", [])
+        code, text = self.run_tool(left, right)
+        self.assertEqual(code, 1)
+        self.assertIn("recorded no import call (ok)", text)
+
 
 if __name__ == "__main__":
     unittest.main()

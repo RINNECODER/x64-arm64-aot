@@ -238,3 +238,27 @@ foreach(target IN ITEMS native_gpu_cube native_gpu_cube_reference)
             --archive "$<TARGET_FILE:SDL2-static>"
         VERBATIM)
 endforeach()
+
+# --- standalone runtime tests -------------------------------------------------------------------
+# Each of these includes the translation unit it covers, so it links only Threads and never
+# anyps5_native_image, whose archive holds the same symbols.
+if(BUILD_TESTING)
+    find_package(Threads REQUIRED)
+    add_test_executable(native_aot_hle_log_open_tests "${CMAKE_CURRENT_SOURCE_DIR}/tests/NativeReviewFixHleLogTests.cpp")
+    add_test_executable(native_aot_image_overlap_tests "${CMAKE_CURRENT_SOURCE_DIR}/tests/NativeReviewFixImageTests.cpp")
+    add_test_executable(native_aot_tls_release_tests "${CMAKE_CURRENT_SOURCE_DIR}/tests/NativeReviewFixTlsTests.cpp")
+    foreach(reviewTest IN ITEMS native_aot_hle_log_open_tests native_aot_image_overlap_tests native_aot_tls_release_tests)
+        target_include_directories(${reviewTest} PRIVATE ${LIBS_INCLUDE_DIR})
+        target_compile_features(${reviewTest} PRIVATE cxx_std_20)
+        set_target_properties(${reviewTest} PROPERTIES CXX_EXTENSIONS OFF)
+        target_link_libraries(${reviewTest} PRIVATE Threads::Threads)
+    endforeach()
+    # The Python suite in core/aot/tests already registers as native_aot_hle_log.<class>.<case>.
+    add_test(NAME native_aot_hle_log_open COMMAND native_aot_hle_log_open_tests)
+    # 100 forked trials, each racing 16 threads to open the log.
+    set_tests_properties(native_aot_hle_log_open PROPERTIES TIMEOUT 120)
+    add_test(NAME native_aot_image_overlap COMMAND native_aot_image_overlap_tests)
+    set_tests_properties(native_aot_image_overlap PROPERTIES TIMEOUT 60)
+    add_test(NAME native_aot_tls_release COMMAND native_aot_tls_release_tests)
+    set_tests_properties(native_aot_tls_release PROPERTIES TIMEOUT 60)
+endif()
