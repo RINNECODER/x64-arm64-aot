@@ -137,6 +137,21 @@ class UniformABITests(unittest.TestCase):
         function(ctypes.byref(registers))
         self.assertEqual(registers.gpr[GPR['rax']], 15)
 
+    def test_uniform_runtime_sized_frame_restored_through_a_register(self):
+        # mov r14, rsp ; mov rbp, rsp ; mov r12, rsp ; sub r12, rax ; and r12, -32 ; mov rsp, r12 ;
+        # mov r13, r12 ; lea rsp, [rbp] ; ret. The frame size is only known at runtime, so the
+        # restore through the register is a dynamic frame, the same shape `and rsp, -32` already
+        # takes in this ABI; r14 and r13 observe the entry rsp and the computed address.
+        code = bytes.fromhex('4989e64889e54989e44929c44983e4e04c89e44d89e5488d6500c3')
+        raw, contracts = fixture(code, [uniform_function('sub_1000', 0x1000, len(code))])
+        function, ir, _ = self.compile(raw, contracts, 'sub_1000')
+        registers = RegisterFile()
+        registers.gpr[GPR['rax']] = 0x121
+        function(ctypes.byref(registers))
+        entered = registers.gpr[GPR['r14']]
+        self.assertEqual(registers.gpr[GPR['r13']], (entered - 0x121) & ~0x1F)
+        self.assertEqual(registers.gpr[GPR['rsp']], entered)
+
     def test_uniform_pointer_argument_loads_the_register_not_an_undefined_arg(self):
         # mov rax, [rdi] ; ret -> rax = *(u64*)rdi. The uniform ABI keeps rdi in its
         # own alloca; a pointer dereference must use that value, not a typed %argN.

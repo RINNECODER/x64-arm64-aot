@@ -799,11 +799,19 @@ class Function:
                         kind, index, offset = original['pointers'][base]
                         state['pointers'][dest] = (kind, index, offset + args[1].mem.disp)
                 if dest in ('rsp', 'rbp'):
+                    source = self.reg(ins, args[1])[0] if args[1].type == X86_OP_REG else None
+                    frame = self.frame_relative(original, source)
                     if op == 'lea' and args[0].size == 8 and not args[1].mem.index and ins.reg_name(args[1].mem.base) in ('rsp', 'rbp'):
                         state[dest] = original[ins.reg_name(args[1].mem.base)] + args[1].mem.disp
-                    elif op == 'mov' and args[0].size == 8 and args[1].type == X86_OP_REG and self.reg(ins, args[1])[0] in ('rsp', 'rbp'):
-                        state[dest] = original[self.reg(ins, args[1])[0]]
-                    elif self.uniform and dest == 'rbp':
+                    elif op == 'mov' and args[0].size == 8 and source in ('rsp', 'rbp'):
+                        state[dest] = original[source]
+                    elif op == 'mov' and args[0].size == 8 and frame is not None:
+                        state[dest] = frame
+                    elif self.uniform and (dest == 'rbp' or args[1].type == X86_OP_REG):
+                        # The uniform ABI keeps the guest rsp in the register file, so a frame the
+                        # analysis cannot pin down is representable and `and rsp, -32` / `sub rsp, rax`
+                        # already take this path; a register source is the same runtime-sized frame
+                        # restored through a register.
                         state[dest] = None
                     else:
                         self.fail(ins, 'unsupported frame manipulation')
@@ -842,6 +850,20 @@ class Function:
             state['flags'] = set(FLAGS)
             return state
         self.fail(ins, 'instruction semantics are not implemented')
+
+    def frame_relative(self, state, name):
+        """The frame offset a register holds, when it is provably frame-relative.
+
+        `lea reg, [rsp + n]` and `mov reg, rsp` record a frame pointer for their destination, so a
+        later `mov rsp, reg` restores the frame from a value the analysis still tracks. A register
+        whose value came from memory or an untracked computation has no such record and is rejected.
+        """
+        if name is None:
+            return None
+        if name in ('rsp', 'rbp'):
+            return state[name]
+        pointer = state['pointers'].get(name)
+        return pointer[2] if pointer is not None and pointer[0] == 'frame' else None
 
     def memory_origin(self, ins, state, operand):
         if operand.type != X86_OP_MEM or operand.mem.index:
