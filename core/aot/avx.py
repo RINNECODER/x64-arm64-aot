@@ -53,6 +53,7 @@ PERMIL_IMM = {'vpermilps': 32, 'vpermilpd': 64}
 PERMS = {'vperm2f128', 'vperm2i128', 'vinsertf128', 'vextractf128', 'vpermq', 'vpermd', 'vpermpd', 'vpermps'}
 DUPS = {'vmovshdup': 32, 'vmovsldup': 32, 'vmovddup': 64}
 PACKED_ODDS = {'vpmulhw', 'vpsadbw', 'vphminposuw'}
+MASKED = {'vmaskmovps', 'vmaskmovpd', 'vpmaskmovd', 'vpmaskmovq'}
 BROADCAST128 = {'vbroadcastf128', 'vbroadcasti128'}
 ADDSUB = {'vaddsubps': 32, 'vaddsubpd': 64}
 MADD = {'vpmaddwd'}
@@ -97,7 +98,7 @@ SUPPORTED = (MOVES | set(BITWISE) | ANDNOT | SCALAR_MOVES | set(BROADCASTS)
              | set(RECIP) | set(CVT_ROUND) | set(TO_INT) | set(EXTRACT_ELEM) | set(INSERT_ELEM)
              | EXTRACT128 | INSERT128 | set(PSHUFB) | set(PALIGNR) | HALF | set(LEGACY_MOVES)
              | set(DUPS) | BROADCAST128 | set(CMP) | set(SHUF_WORDS) | set(MUL64)
-             | set(ADDSUB) | set(MADD) | set(PACKED_ODDS))
+             | set(ADDSUB) | set(MADD) | set(PACKED_ODDS) | set(MASKED))
 MASK128 = (1 << 128) - 1
 MASK256 = (1 << 256) - 1
 
@@ -138,6 +139,10 @@ INTRINSIC_DECLARATIONS = [
     'declare <4 x double> @llvm.round.v4f64(<4 x double>)',
     'declare float @llvm.round.f32(float)',
     'declare double @llvm.round.f64(double)',
+    'declare <4 x i32> @llvm.masked.load.v4i32.p0(ptr, i32, <4 x i1>, <4 x i32>)',
+    'declare <8 x i32> @llvm.masked.load.v8i32.p0(ptr, i32, <8 x i1>, <8 x i32>)',
+    'declare void @llvm.masked.store.v4i32.p0(<4 x i32>, ptr, i32, <4 x i1>)',
+    'declare void @llvm.masked.store.v8i32.p0(<8 x i32>, ptr, i32, <8 x i1>)',
 ]
 
 
@@ -295,6 +300,16 @@ def analyze(function, ins, state):
         for operand in args[1:]:
             _known(function, ins, state, operand, bits if op != 'vphminposuw' else 128)
         _define(function, ins, state, args[0], (1 << bits) - 1, bits)
+    elif op in MASKED:
+        register = args[0] if _register(ins, args[0]) is not None else args[2]
+        mask_bits = register.size * 8
+        _require(function, ins, state, args[1], mask_bits)
+        if _register(ins, args[0]) is not None:
+            _known(function, ins, state, args[2], mask_bits)
+            _define(function, ins, state, args[0], (1 << mask_bits) - 1, mask_bits)
+        else:
+            _require(function, ins, state, args[2], mask_bits)
+            function.define(ins, state, args[0])
     elif op in PACKED_CMPEQ or op in PACKED_CMPGT:
         lane = (PACKED_CMPEQ | PACKED_CMPGT)[op]
         _define(function, ins, state, args[0], _complete(_binary_mask(function, ins, state, bits), lane, bits), bits)
@@ -684,6 +699,23 @@ def lower(function, ins):
         _write(function, ins, args[0], _lower_binary(function, ins, bits, llvm_op, lane, False), bits)
     elif op in PACKED_ODDS:
         _write(function, ins, args[0], _lower_odd(function, ins, bits, op), bits)
+    elif op in MASKED:
+        register = args[0] if _register(ins, args[0]) is not None else args[2]
+        lane_bits = register.size * 8
+        lanes = lane_bits // 32
+        kind = f'<{lanes} x i32>'
+        source = function.emit(f'bitcast i{lane_bits} {_read(function, ins, args[1], lane_bits)} to {kind}')
+        splat = ', '.join(['i32 31'] * lanes)
+        shifted = function.emit(f'lshr {kind} {source}, <{splat}>')
+        mask = function.emit(f'trunc {kind} {shifted} to <{lanes} x i1>')
+        if _register(ins, args[0]) is not None:
+            pointer = function.address(ins, args[2])
+            loaded = function.emit(f'call {kind} @llvm.masked.load.v{lanes}i32.p0(ptr {pointer}, i32 1, <{lanes} x i1> {mask}, {kind} zeroinitializer)')
+            _write(function, ins, args[0], function.emit(f'bitcast {kind} {loaded} to i{lane_bits}'), lane_bits)
+        else:
+            pointer = function.address(ins, args[0])
+            value = function.emit(f'bitcast i{lane_bits} {_read(function, ins, args[2], lane_bits)} to {kind}')
+            function.lines.append(f'  call void @llvm.masked.store.v{lanes}i32.p0({kind} {value}, ptr {pointer}, i32 1, <{lanes} x i1> {mask})')
     elif op in PACKED_CMPEQ or op in PACKED_CMPGT:
         lane = (PACKED_CMPEQ | PACKED_CMPGT)[op]
         predicate = 'eq' if op in PACKED_CMPEQ else 'sgt'

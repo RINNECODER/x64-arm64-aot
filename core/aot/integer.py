@@ -174,8 +174,8 @@ def analyze(function, ins, state):
         if len(args) != 2 or width not in (8, 16, 32, 64):
             function.fail(ins, 'unsupported rotate operands')
         dynamic = args[1].type == X86_OP_REG
-        if (op in ('rcl', 'rcr') or dynamic) and 'cf' not in state['flags']:
-            # A zero count leaves CF unchanged, so the incoming carry must be defined.
+        if op in ('rcl', 'rcr') and 'cf' not in state['flags']:
+            # The carry is an input to the rotation itself, so the destination depends on it.
             function.fail(ins, 'rotate carry input is not defined')
         if args[1].type == X86_OP_IMM:
             count = args[1].imm & (63 if width == 64 else 31)
@@ -184,9 +184,10 @@ def analyze(function, ins, state):
                 defined = {'of'} if count == 1 and op in ('rol', 'ror') else set()
                 state['flags'] = (state['flags'] - {'cf', 'of'}) | {'cf'} | defined
         elif dynamic and function.reg(ins, args[1])[0] == 'rcx':
-            # A dynamic count: CF is always defined, OF only when the masked count is one.
+            # A dynamic count is zero sometimes, which leaves CF unchanged, so CF stays defined
+            # only if it already was; OF is defined only when the masked count is one.
             function.read_operand(ins, state, args[1])
-            state['flags'] = (state['flags'] - {'of'}) | {'cf'}
+            state['flags'] = (state['flags'] - {'of'}) | ({'cf'} if 'cf' in state['flags'] else set())
         else:
             function.fail(ins, f'{op} requires an immediate or cl count')
         function.define(ins, state, args[0])
