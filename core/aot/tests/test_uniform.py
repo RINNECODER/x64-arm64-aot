@@ -373,6 +373,27 @@ class UniformABITests(unittest.TestCase):
         function(ctypes.byref(registers))
         self.assertEqual(registers.gpr[GPR['rax']], 7)
 
+    def test_uniform_indirect_call_selects_among_the_declared_targets(self):
+        # 0x1000: call rax ; ret   0x1010: lea eax,[rdi+1] ; ret   0x1020: lea eax,[rdi+2] ; ret
+        # The declared set has two entries, so the shared membership table must select the one
+        # the call actually targets.
+        code = bytearray(0x24)
+        code[0x00:0x03] = bytes.fromhex('ffd0c3')
+        code[0x10:0x14] = bytes.fromhex('8d4701c3')
+        code[0x20:0x24] = bytes.fromhex('8d4702c3')
+        functions = [uniform_function('sub_1000', 0x1000, 3,
+                                      indirect_calls=[{'address': 0x1000, 'targets': [0x1010, 0x1020]}]),
+                     uniform_function('sub_1010', 0x1010, 4),
+                     uniform_function('sub_1020', 0x1020, 4)]
+        raw, contracts = fixture(bytes(code), functions)
+        function, _, library = self.compile(raw, contracts, 'sub_1000')
+        for name, expected in (('sub_1010', 7), ('sub_1020', 8)):
+            registers = RegisterFile()
+            registers.gpr[GPR['rdi']] = 6
+            registers.gpr[GPR['rax']] = ctypes.cast(getattr(library, name), ctypes.c_void_p).value
+            function(ctypes.byref(registers))
+            self.assertEqual(registers.gpr[GPR['rax']], expected)
+
     def test_uniform_unannotated_indirect_call_dispatches(self):
         # 0x1000: call rax ; ret  — no target set, so it lowers to the runtime dispatch table
         code = bytearray(0x04)

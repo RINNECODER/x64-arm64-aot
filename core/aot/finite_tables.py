@@ -1,5 +1,7 @@
 from capstone.x86 import X86_OP_MEM, X86_OP_REG
 
+import hashlib
+
 from calls import structural_signature
 
 
@@ -96,11 +98,44 @@ def emit_target(function, ins, descriptor):
     return function.emit(f'load ptr, ptr {pointer}, align 1')
 
 
+MEMBER = '__aps5_aot_target_member'
+MEMBER_HELPER = f'''define internal i1 @{MEMBER}(ptr %table, i64 %count, ptr %target) {{\nentry:\n  br label %loop\nloop:\n  %index = phi i64 [ 0, %entry ], [ %next, %body ]\n  %end = icmp uge i64 %index, %count\n  br i1 %end, label %missing, label %body\nbody:\n  %slot = getelementptr inbounds ptr, ptr %table, i64 %index\n  %candidate = load ptr, ptr %slot, align 8\n  %hit = icmp eq ptr %candidate, %target\n  %next = add i64 %index, 1\n  br i1 %hit, label %found, label %loop\nfound:\n  ret i1 true\nmissing:\n  ret i1 false\n}}'''
+
+
+def target_table(image, pointers):
+    """Name of the shared constant table for `pointers`, registering it on first use.
+
+    Sites share their declared target sets, so one table per distinct set replaces a
+    per-site chain of compares; membership is order-independent and duplicates are dropped.
+    The name is content-addressed so a function's IR does not depend on the order in which
+    other functions registered their tables.
+    """
+    key = tuple(dict.fromkeys(pointers))
+    tables = getattr(image, 'target_tables', None)
+    if tables is None:
+        tables = image.target_tables = {}
+    name = '__aps5_aot_targets_' + hashlib.sha256('\x00'.join(key).encode()).hexdigest()[:16]
+    if name not in tables:
+        tables[name] = key
+    return name
+
+
 def emit_membership(function, ins, target, pointers):
-    allowed = 'false'
-    for pointer in dict.fromkeys(pointers):
-        equal = function.emit(f'icmp eq ptr {target}, {pointer}')
-        allowed = function.emit(f'or i1 {allowed}, {equal}')
+    names = list(dict.fromkeys(pointers))
+    table = target_table(function.image, names)
+    allowed = function.emit(f'call i1 @{MEMBER}(ptr @{table}, i64 {len(names)}, ptr {target})')
     continuation, invalid = f'target_valid_{ins.address:x}', f'target_invalid_{ins.address:x}'
     function.lines.extend([f'  br i1 {allowed}, label %{continuation}, label %{invalid}', invalid + ':',
                            '  call void @llvm.trap()', '  unreachable', continuation + ':'])
+
+
+def module_declarations(image):
+    """Constant target tables and the membership helper the lowered bodies call."""
+    tables = getattr(image, 'target_tables', None)
+    if not tables:
+        return []
+    lines = [f'@{name} = private constant [{len(pointers)} x ptr] '
+             f'[{ ", ".join("ptr " + pointer for pointer in pointers)}], align 8'
+             for name, pointers in sorted(tables.items())]
+    lines.append(MEMBER_HELPER)
+    return lines

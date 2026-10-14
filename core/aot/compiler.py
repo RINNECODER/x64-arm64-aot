@@ -1746,6 +1746,19 @@ class Function:
         return '\n'.join(self.lines)
 
 
+_EXTERN = re.compile(r'^(@[A-Za-z_][A-Za-z_0-9]*) = (?:private )?(constant|global) (\[[^\]]*\])')
+
+
+def extern_declaration(line):
+    """Turn a module-global definition into the external declaration a chunk module needs."""
+    match = _EXTERN.match(line)
+    if match is None:
+        return None
+    align = re.search(r'align \d+$', line)
+    return (f'{match.group(1)} = external {match.group(2)} {match.group(3)}'
+            + (f', {align.group(0)}' if align else ''))
+
+
 def _reason_histogram(stubs):
     counts = {}
     for _, reason in stubs:
@@ -1773,11 +1786,13 @@ def stub_function(spec, reason):
                       '  call void @llvm.trap()', '  unreachable', '}'])
 
 
-def compile_image(image, sink=None):
+def compile_image(image, sink=None, emit_bodies=True):
     """Lower the whole image to LLVM IR.
 
     With `sink`, the preamble, each body and each stub are written out as they are produced and
-    the IR is not returned; a title's module is far too large to assemble in memory.
+    the IR is not returned; a title's module is far too large to assemble in memory. With
+    `emit_bodies` false only the preamble (plus the shared tables and helper) is emitted, which a
+    partitioned build links against one module of per-chunk bodies.
     """
     # A whole-title build sets allow_unimplemented so a rejected body becomes a reporting trap
     # stub instead of failing the image; the SDK samples keep the strict default.
@@ -1958,11 +1973,15 @@ def compile_image(image, sink=None):
         lines.extend(['  ret void', '}'])
     for function in functions:
         function.entry_index = function.contract.get('entry_index')
+    # A partitioned build reuses these: the header carries the declarations a chunk module needs,
+    # and the extern list names the module globals it references from the preamble module.
+    image.module_header = [line for line in lines if line.startswith(('target triple', 'declare ', '%regfile = type'))]
+    image.module_externs = [extern for extern in (extern_declaration(line) for line in lines) if extern]
     bodies = []
     late_stubs = []
     if sink is not None:
         sink('\n\n'.join(lines))
-    for function in functions:
+    for function in (functions if emit_bodies else ()):
         try:
             body = function.lower()
         except Rejected as error:
@@ -1978,9 +1997,12 @@ def compile_image(image, sink=None):
     if sink is None:
         lines.extend(bodies)
         lines.extend(stub_function(spec, reason) for spec, reason in stubs)
+        lines.extend(finite_tables.module_declarations(image))
     else:
         for spec, reason in stubs:
             sink('\n\n' + stub_function(spec, reason))
+        for declaration in finite_tables.module_declarations(image):
+            sink('\n\n' + declaration)
         sink('\n')
     stubs.extend(late_stubs)
     if image.hle_log:
