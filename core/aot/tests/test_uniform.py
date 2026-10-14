@@ -1,5 +1,6 @@
 import ctypes
 import hashlib
+import random
 import struct
 import subprocess
 import tempfile
@@ -7,7 +8,7 @@ import unittest
 from pathlib import Path
 
 from abi import (ABIError, UNIFORM_STACK_SLOTS, uniform, uniform_locations, signature)
-from compiler import Image, compile_image
+from compiler import Function, Image, compile_image
 
 
 def fixture(code, functions, imports=None, relocations=None, data_bindings=None, bindings=None, dispatch=False, tls=None):
@@ -71,6 +72,7 @@ def uniform_function(name, address, size, **extra):
 
 class RegisterFile(ctypes.Structure):
     _fields_ = [('gpr', ctypes.c_uint64 * 16), ('xmm', (ctypes.c_uint64 * 2) * 16),
+                ('ymm_hi', (ctypes.c_uint64 * 2) * 16),
                 ('stack', ctypes.c_uint64 * UNIFORM_STACK_SLOTS)]
 
 
@@ -117,7 +119,8 @@ class UniformABITests(unittest.TestCase):
         registers = [item['name'] for item in locations if item['kind'] == 'register']
         self.assertEqual(registers[:8], ['rax', 'rcx', 'rdx', 'rbx', 'rsp', 'rbp', 'rsi', 'rdi'])
         self.assertEqual(registers[8:16], [f'r{i}' for i in range(8, 16)])
-        self.assertEqual(registers[16:], [f'xmm{i}' for i in range(16)])
+        self.assertEqual(registers[16:32], [f'xmm{i}' for i in range(16)])
+        self.assertEqual(registers[32:], [f'ymm_hi{i}' for i in range(16)])
         stack = [item['offset'] for item in locations if item['kind'] == 'stack']
         self.assertEqual(stack, list(range(8, 8 + 8 * UNIFORM_STACK_SLOTS, 8)))
 
@@ -287,6 +290,70 @@ class UniformABITests(unittest.TestCase):
         function, ir, _ = self.compile(raw, contracts, 'sub_1000')
         self.assertIn('call void @llvm.trap()', ir)
         self.assertNotIn('call void @sub_1010', ir)
+
+    def native_ymm_run(self, code, data):
+        """Run the 32-byte ymm copy code natively (x86_64) and return the output bytes."""
+        source = self.directory / 'call.S'
+        source.write_text('.intel_syntax noprefix\n.text\n.globl _run\n_run:\n'
+                          + '\n'.join(f'.byte 0x{byte:02x}' for byte in code) + '\nret\n')
+        runner = self.directory / 'call.c'
+        runner.write_text('#include <stdint.h>\n#include <stdio.h>\n'
+                          'extern void run(const void*, void*);\n'
+                          'int main(void){unsigned char in[32], out[32]; '
+                          'while(fread(in,1,32,stdin)==32){for(int i=0;i<32;i++)out[i]=0; run(in,out); '
+                          'fwrite(out,1,32,stdout);} return 0;}\n')
+        binary = self.directory / 'call.x86'
+        subprocess.run(['xcrun', 'clang', '-arch', 'x86_64', '-O2', str(source), str(runner), '-o', str(binary)],
+                       check=True, capture_output=True)
+        return subprocess.run([str(binary)], input=data, check=True, capture_output=True).stdout[:32]
+
+    def test_uniform_call_preserves_ymm_upper_halves(self):
+        # 0x1000: vmovdqu ymm0,[rdi] ; call 0x1010 ; vmovdqu [rsi],ymm0 ; ret   0x1010: ret
+        # The callee returns the register file, so the caller's ymm upper half survives the call.
+        code = bytearray(0x11)
+        code[0x00:0x04] = bytes.fromhex('c5fe6f07')
+        code[0x04:0x09] = bytes.fromhex('e807000000')
+        code[0x09:0x0D] = bytes.fromhex('c5fe7f06')
+        code[0x0D] = 0xC3
+        code[0x10] = 0xC3
+        functions = [uniform_function('sub_1000', 0x1000, 0x10),
+                     uniform_function('sub_1010', 0x1010, 1)]
+        raw, contracts = fixture(bytes(code), functions)
+        function, ir, _ = self.compile(raw, contracts, 'sub_1000')
+        randoms = random.Random(5150)
+        for _ in range(16):
+            data = randoms.randbytes(32)
+            registers = RegisterFile()
+            source = ctypes.create_string_buffer(data, 32)
+            output = ctypes.create_string_buffer(32)
+            registers.gpr[7] = ctypes.addressof(source)
+            registers.gpr[6] = ctypes.addressof(output)
+            function(ctypes.byref(registers))
+            self.assertEqual(output.raw, data)
+            self.assertEqual(self.native_ymm_run(bytes(code), data), data)
+
+    def test_uniform_call_does_not_over_define_ymm_upper_halves(self):
+        # The caller's upper halves are passed and returned; a partially defined one must stay
+        # partially defined after the call rather than being assumed fully defined.
+        code = bytearray(0x11)
+        code[0x00:0x04] = bytes.fromhex('c5fe6f07')
+        code[0x04:0x09] = bytes.fromhex('e807000000')
+        code[0x09:0x0D] = bytes.fromhex('c5fe7f06')
+        code[0x0D] = 0xC3
+        code[0x10] = 0xC3
+        functions = [uniform_function('sub_1000', 0x1000, 0x10),
+                     uniform_function('sub_1010', 0x1010, 1)]
+        raw, contracts = fixture(bytes(code), functions)
+        elf = self.directory / 'input.elf'
+        elf.write_bytes(raw)
+        function = Function(Image(elf, contracts), Image(elf, contracts).functions[0x1000])
+        function.analyze()
+        instruction = function.instructions[0x1004]
+        state = dict(function.states[0x1004])
+        state['known'] = dict(state['known'])
+        state['known']['ymm_hi0'] = 0x0000ffff
+        after = function.transfer_unchecked(instruction, state)
+        self.assertEqual(after['known'].get('ymm_hi0', 0), 0x0000ffff)
 
     def test_uniform_indirect_call_uses_the_declared_target_set(self):
         # 0x1000: call rax ; ret          0x1010: mov rax, rdi ; ret

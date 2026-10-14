@@ -91,9 +91,11 @@ def uniform(contract):
 
 
 def uniform_locations():
-    """Every GPR (as a native pointer), every XMM, and a fixed incoming-stack window."""
+    """Every GPR (as a native pointer), every XMM, its YMM upper half, and a fixed incoming-stack window."""
     result = [{'kind': 'register', 'name': name, 'bits': 64, 'type': 'ptr'} for name in UNIFORM_GPRS]
     result += [{'kind': 'register', 'name': name, 'bits': 128, 'type': 'f64'} for name in UNIFORM_VECTORS]
+    result += [{'kind': 'register', 'name': f'ymm_hi{index}', 'bits': 128, 'type': 'f64'}
+               for index in range(len(UNIFORM_VECTORS))]
     result += [{'kind': 'stack', 'offset': UNIFORM_STACK_BASE + 8 * index, 'bits': 64, 'type': 'i64'}
                for index in range(UNIFORM_STACK_SLOTS)]
     return result

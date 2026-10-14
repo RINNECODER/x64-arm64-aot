@@ -724,6 +724,7 @@ class Function:
                         self.fail(ins, 'outgoing stack argument is not allocated')
                     if loc['type'] == 'ptr' and offset not in state['stack_pointers'] and stack_values.read(state, offset, 8) != 0 and not checked_pointers.argument_allowed(self, ins, index) and not self.uniform:
                         self.fail_pointer(ins, 'stack pointer argument has no proven native pointer origin')
+            passed_upper = {reg: state['known'].get(reg, 0) for reg in VECTOR_STORAGE if reg.startswith('ymm_hi')}
             for reg in VOLATILE | set(VECTOR_STORAGE):
                 state['known'].pop(reg, None)
                 state['pointers'].pop(reg, None)
@@ -735,7 +736,13 @@ class Function:
             state['flags'] = set()
             if abi.uniform(callee):
                 for reg in VOLATILE | set(VECTOR_STORAGE):
-                    state['known'][reg] = (1 << 128) - 1 if reg in VECTOR_STORAGE else MASK64
+                    if reg in passed_upper:
+                        # The upper halves are passed to and returned from the callee through the
+                        # register file; the callee can only define them further, so the value the
+                        # caller passed is a sound lower bound rather than assuming them defined.
+                        state['known'][reg] = passed_upper[reg]
+                    else:
+                        state['known'][reg] = (1 << 128) - 1 if reg in VECTOR_STORAGE else MASK64
             elif callee['result'] != 'void':
                 state['known'][abi.return_register(callee['result'])] = (1 << abi.bits(callee['result'])) - 1
             return state
@@ -1379,6 +1386,10 @@ class Function:
             gep = self.uniform_gep(block, 1, index)
             value = self.emit(f'load i128, ptr {gep}, align 16')
             self.lines.append(f'  store i128 {value}, ptr %{reg}, align 16')
+        for index in range(16):
+            gep = self.uniform_gep(block, 2, index)
+            value = self.emit(f'load i128, ptr {gep}, align 16')
+            self.lines.append(f'  store i128 {value}, ptr %ymm_hi{index}, align 16')
 
     def uniform_store_registers(self, block):
         for index, reg in enumerate(REGISTERS):
@@ -1389,6 +1400,10 @@ class Function:
             value = self.emit(f'load i128, ptr %{reg}, align 16')
             gep = self.uniform_gep(block, 1, index)
             self.lines.append(f'  store i128 {value}, ptr {gep}, align 16')
+        for index in range(16):
+            value = self.emit(f'load i128, ptr %ymm_hi{index}, align 16')
+            gep = self.uniform_gep(block, 2, index)
+            self.lines.append(f'  store i128 {value}, ptr {gep}, align 16')
 
     def uniform_stack_out(self, block, rsp):
         if rsp is None:
@@ -1398,13 +1413,13 @@ class Function:
         for index in range(abi.UNIFORM_STACK_SLOTS):
             offset = abi.UNIFORM_STACK_BASE + 8 * index
             value = self.emit(f'load i64, ptr {self.frame_pointer(rsp + offset - 8)}, align 1')
-            gep = self.uniform_gep(block, 2, index)
+            gep = self.uniform_gep(block, 3, index)
             self.lines.append(f'  store i64 {value}, ptr {gep}, align 8')
 
     def uniform_stack_in(self, block):
         for index in range(abi.UNIFORM_STACK_SLOTS):
             offset = abi.UNIFORM_STACK_BASE + 8 * index
-            gep = self.uniform_gep(block, 2, index)
+            gep = self.uniform_gep(block, 3, index)
             value = self.emit(f'load i64, ptr {gep}, align 8')
             self.lines.append(f'  store i64 {value}, ptr {self.frame_pointer(offset)}, align 1')
 
@@ -1813,7 +1828,7 @@ def compile_image(image, sink=None):
         lines.append('declare double @fmod(double, double)')
     lines.extend(d for d in avx.INTRINSIC_DECLARATIONS if d not in lines)
     if any(abi.uniform(spec) for spec in image.functions.values()):
-        lines.append('%%regfile = type { [16 x i64], [16 x i128], [%d x i64] }' % abi.UNIFORM_STACK_SLOTS)
+        lines.append('%%regfile = type { [16 x i64], [16 x i128], [16 x i128], [%d x i64] }' % abi.UNIFORM_STACK_SLOTS)
     dispatch_enabled = bool(image.contracts.get('dispatch'))
     # The dispatch table is keyed by host address: a relocated vtable entry already holds guest_base + target.
     dispatch_entries = sorted((image.guest_base + spec['address'], spec['name']) for spec in image.functions.values()) if dispatch_enabled else []
