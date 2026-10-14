@@ -37,6 +37,30 @@ class SsePackedTests(NativeAvxHarness):
                 with self.subTest(mnemonic=mnemonic, control=control):
                     self.compare_native(f'{mnemonic} xmm0, xmm1, {control}', self.samples())
 
+    def test_word_multiply_high_and_sum_of_absolute_differences(self):
+        for mnemonic in ('pmulhw', 'psadbw'):
+            with self.subTest(mnemonic=mnemonic):
+                self.compare_native(f'{mnemonic} xmm0, xmm1', self.samples())
+
+    def test_extract_word(self):
+        for control in (0, 1, 3, 7):
+            with self.subTest(control=control):
+                self.compare_native(f'pextrw eax, xmm0, {control}', self.samples())
+
+    def test_horizontal_minimum_position(self):
+        self.compare_native('phminposuw xmm0, xmm1', self.samples())
+
+    def test_byte_shifts(self):
+        for mnemonic in ('pslldq', 'psrldq'):
+            for count in (0, 1, 5, 8, 15, 16, 20):
+                with self.subTest(mnemonic=mnemonic, count=count):
+                    self.compare_native(f'{mnemonic} xmm0, {count}', self.samples())
+
+    def test_scalar_conversion_from_memory(self):
+        # A scalar conversion may read memory and write a GPR, with no xmm operand.
+        self.compare_native('cvttsd2si eax, qword ptr [rsi]', self.samples())
+        self.compare_native('cvttsd2si rax, qword ptr [rsi]', self.samples())
+
     def test_signed_packs(self):
         for mnemonic in ('packsswb', 'packssdw'):
             with self.subTest(mnemonic=mnemonic):

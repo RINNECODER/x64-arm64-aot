@@ -51,7 +51,8 @@ SUPPORTED = (FULL_MOVES | set(BITWISE) | set(FLOAT_OPS) | SHUFFLES | set(SQRT_OP
              | set(PACKED_MINMAX) | set(PACKED_UNPACKS) | set(CMP_MNEMONICS) | set(CMP_GENERIC)
              | set(CVT_PACKED) | {
     'movd', 'movq', 'movss', 'movsd', 'movlps', 'movlpd', 'psrld', 'paddd', 'pcmpgtd',
-    'packuswb', 'ucomiss', 'cvtsi2ss', 'paddb', 'pmaxub', 'pcmpeqb', 'pcmpeqd', 'psrad', 'movmskps'})
+    'packuswb', 'ucomiss', 'cvtsi2ss', 'paddb', 'pmaxub', 'pcmpeqb', 'pcmpeqd', 'psrad', 'movmskps',
+    'pextrw', 'pmulhw', 'psadbw', 'phminposuw', 'pslldq', 'psrldq'})
 FP_POLICY = {'rounding': 'nearest-even', 'subnormals': 'preserve', 'exceptions': 'masked',
              'status_flags': 'unobserved', 'nan_payloads': 'unobserved'}
 MASK128 = (1 << 128) - 1
@@ -152,7 +153,8 @@ def analyze(function, ins, state):
     op, args = ins.mnemonic, ins.operands
     if op not in SUPPORTED:
         return False
-    if not any(_xmm(ins, operand) for operand in args):
+    if not any(_xmm(ins, operand) for operand in args) and op not in TO_INT:
+        # A scalar conversion may read memory and write a GPR, with no xmm operand at all.
         return False
     if op in FULL_MOVES:
         if _xmm(ins, args[0]):
@@ -186,6 +188,19 @@ def analyze(function, ins, state):
     elif op == 'movmskps':
         _check(function, ins, state, args[1], 128)
         _define(function, ins, state, args[0], 32)
+    elif op == 'pextrw':
+        _check(function, ins, state, args[1], 128)
+        function.define(ins, state, args[0])
+    elif op in ('pmulhw', 'psadbw'):
+        _check(function, ins, state, args[0], 128)
+        _check(function, ins, state, args[1], 128)
+        _copy_mask(ins, state, args[0], MASK128)
+    elif op == 'phminposuw':
+        _check(function, ins, state, args[1], 128)
+        _copy_mask(ins, state, args[0], MASK128)
+    elif op in ('pslldq', 'psrldq'):
+        _check(function, ins, state, args[0], 128)
+        _copy_mask(ins, state, args[0], _mask(function, ins, state, args[0]))
     elif op in SHUF_WORDS:
         source = _mask(function, ins, state, args[1])
         control = args[2].imm
@@ -332,7 +347,7 @@ def _pack(function, value, width=32):
 
 def lower(function, ins):
     op, args = ins.mnemonic, ins.operands
-    if op not in SUPPORTED or not any(_xmm(ins, operand) for operand in args):
+    if op not in SUPPORTED or (not any(_xmm(ins, operand) for operand in args) and op not in TO_INT):
         return False
     read = lambda operand, bits=128: function.read(ins, operand, bits)
     if op in ('movaps', 'movapd', 'movdqa'):
@@ -380,6 +395,65 @@ def lower(function, ins):
             bit = function.emit(f'shl i32 {bit}, {lane}')
             value = function.emit(f'or i32 {value}, {bit}')
         function.write(ins, args[0], value)
+    elif op == 'pextrw':
+        source = function.emit(f'bitcast i128 {read(args[1])} to <8 x i16>')
+        element = function.emit(f'extractelement <8 x i16> {source}, i32 {args[2].imm & 7}')
+        dest_bits = args[0].size * 8
+        if dest_bits > 16:
+            element = function.emit(f'zext i16 {element} to i{dest_bits}')
+        function.write(ins, args[0], element)
+    elif op == 'pmulhw':
+        kind = '<8 x i16>'
+        left = function.emit(f'bitcast i128 {read(args[0])} to {kind}')
+        right = function.emit(f'bitcast i128 {read(args[1])} to {kind}')
+        left32 = function.emit(f'sext {kind} {left} to <8 x i32>')
+        right32 = function.emit(f'sext {kind} {right} to <8 x i32>')
+        product = function.emit(f'mul <8 x i32> {left32}, {right32}')
+        splat = ', '.join(['i32 16'] * 8)
+        high = function.emit(f'lshr <8 x i32> {product}, <{splat}>')
+        result = function.emit(f'trunc <8 x i32> {high} to {kind}')
+        _write(function, ins, args[0], function.emit(f'bitcast {kind} {result} to i128'))
+    elif op == 'psadbw':
+        kind = '<16 x i8>'
+        left = function.emit(f'bitcast i128 {read(args[0])} to {kind}')
+        right = function.emit(f'bitcast i128 {read(args[1])} to {kind}')
+        below = function.emit(f'icmp ugt {kind} {left}, {right}')
+        forward = function.emit(f'sub {kind} {left}, {right}')
+        backward = function.emit(f'sub {kind} {right}, {left}')
+        difference = function.emit(f'select <16 x i1> {below}, {kind} {forward}, {kind} {backward}')
+        sums = []
+        for group in (0, 8):
+            total = '0'
+            for lane in range(8):
+                element = function.emit(f'extractelement {kind} {difference}, i32 {group + lane}')
+                element = function.emit(f'zext i8 {element} to i64')
+                total = function.emit(f'add i64 {total}, {element}')
+            sums.append(total)
+        low = function.emit(f'zext i64 {sums[0]} to i128')
+        high = function.emit(f'zext i64 {sums[1]} to i128')
+        high = function.emit(f'shl i128 {high}, 64')
+        _write(function, ins, args[0], function.emit(f'or i128 {low}, {high}'))
+    elif op in ('pslldq', 'psrldq'):
+        shift = args[1].imm * 8
+        if shift >= 128:
+            _write(function, ins, args[0], '0')
+        else:
+            value = read(args[0])
+            _write(function, ins, args[0], function.emit(f'{"shl" if op == "pslldq" else "lshr"} i128 {value}, {shift}'))
+    elif op == 'phminposuw':
+        kind = '<8 x i16>'
+        source = function.emit(f'bitcast i128 {read(args[1])} to {kind}')
+        best = function.emit(f'extractelement {kind} {source}, i32 0')
+        index = '0'
+        for lane in range(1, 8):
+            element = function.emit(f'extractelement {kind} {source}, i32 {lane}')
+            less = function.emit(f'icmp ult i16 {element}, {best}')
+            best = function.emit(f'select i1 {less}, i16 {element}, i16 {best}')
+            index = function.emit(f'select i1 {less}, i32 {lane}, i32 {index}')
+        value = function.emit(f'zext i16 {best} to i32')
+        shifted = function.emit(f'shl i32 {index}, 16')
+        value = function.emit(f'or i32 {value}, {shifted}')
+        _write(function, ins, args[0], function.emit(f'zext i32 {value} to i128'))
     elif op in SHUF_WORDS:
         source = function.emit(f'bitcast i128 {read(args[1])} to <8 x i16>')
         control = args[2].imm

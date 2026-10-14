@@ -52,6 +52,7 @@ BLENDS_VAR = {'vblendvps': 32, 'vblendvpd': 64, 'vpblendvb': 8}
 PERMIL_IMM = {'vpermilps': 32, 'vpermilpd': 64}
 PERMS = {'vperm2f128', 'vperm2i128', 'vinsertf128', 'vextractf128', 'vpermq', 'vpermd', 'vpermpd', 'vpermps'}
 DUPS = {'vmovshdup': 32, 'vmovsldup': 32, 'vmovddup': 64}
+PACKED_ODDS = {'vpmulhw', 'vpsadbw', 'vphminposuw'}
 BROADCAST128 = {'vbroadcastf128', 'vbroadcasti128'}
 ADDSUB = {'vaddsubps': 32, 'vaddsubpd': 64}
 MADD = {'vpmaddwd'}
@@ -96,7 +97,7 @@ SUPPORTED = (MOVES | set(BITWISE) | ANDNOT | SCALAR_MOVES | set(BROADCASTS)
              | set(RECIP) | set(CVT_ROUND) | set(TO_INT) | set(EXTRACT_ELEM) | set(INSERT_ELEM)
              | EXTRACT128 | INSERT128 | set(PSHUFB) | set(PALIGNR) | HALF | set(LEGACY_MOVES)
              | set(DUPS) | BROADCAST128 | set(CMP) | set(SHUF_WORDS) | set(MUL64)
-             | set(ADDSUB) | set(MADD))
+             | set(ADDSUB) | set(MADD) | set(PACKED_ODDS))
 MASK128 = (1 << 128) - 1
 MASK256 = (1 << 256) - 1
 
@@ -290,6 +291,10 @@ def analyze(function, ins, state):
         _define(function, ins, state, args[0], known, 128)
     elif op in PACKED_INT:
         _define(function, ins, state, args[0], _binary_mask(function, ins, state, bits), bits)
+    elif op in PACKED_ODDS:
+        for operand in args[1:]:
+            _known(function, ins, state, operand, bits if op != 'vphminposuw' else 128)
+        _define(function, ins, state, args[0], (1 << bits) - 1, bits)
     elif op in PACKED_CMPEQ or op in PACKED_CMPGT:
         lane = (PACKED_CMPEQ | PACKED_CMPGT)[op]
         _define(function, ins, state, args[0], _complete(_binary_mask(function, ins, state, bits), lane, bits), bits)
@@ -501,6 +506,54 @@ def _lower_binary(function, ins, bits, llvm_op, lane_bits, is_float):
     return function.emit(f'bitcast {kind} {result} to i{bits}')
 
 
+def _lower_odd(function, ins, bits, op):
+    """vpmulhw (signed word multiply high), vpsadbw (byte SAD per 8-byte group) and
+    vphminposuw (minimum unsigned word and its index)."""
+    if op == 'vphminposuw':
+        source = function.emit(f'bitcast i128 {_read(function, ins, ins.operands[1], 128)} to <8 x i16>')
+        best = function.emit(f'extractelement <8 x i16> {source}, i32 0')
+        index = '0'
+        for lane in range(1, 8):
+            element = function.emit(f'extractelement <8 x i16> {source}, i32 {lane}')
+            less = function.emit(f'icmp ult i16 {element}, {best}')
+            best = function.emit(f'select i1 {less}, i16 {element}, i16 {best}')
+            index = function.emit(f'select i1 {less}, i32 {lane}, i32 {index}')
+        value = function.emit(f'zext i16 {best} to i32')
+        value = function.emit(f'or i32 {value}, {function.emit(f"shl i32 {index}, 16")}')
+        return function.emit(f'zext i32 {value} to i128')
+    if op == 'vpmulhw':
+        count = bits // 16
+        kind = f'<{count} x i16>'
+        left = function.emit(f'bitcast i{bits} {_read(function, ins, ins.operands[1], bits)} to {kind}')
+        right = function.emit(f'bitcast i{bits} {_read(function, ins, ins.operands[2], bits)} to {kind}')
+        left32 = function.emit(f'sext {kind} {left} to <{count} x i32>')
+        right32 = function.emit(f'sext {kind} {right} to <{count} x i32>')
+        product = function.emit(f'mul <{count} x i32> {left32}, {right32}')
+        splat = ', '.join(['i32 16'] * count)
+        high = function.emit(f'lshr <{count} x i32> {product}, <{splat}>')
+        result = function.emit(f'trunc <{count} x i32> {high} to {kind}')
+        return function.emit(f'bitcast {kind} {result} to i{bits}')
+    count = bits // 8
+    kind = f'<{count} x i8>'
+    left = function.emit(f'bitcast i{bits} {_read(function, ins, ins.operands[1], bits)} to {kind}')
+    right = function.emit(f'bitcast i{bits} {_read(function, ins, ins.operands[2], bits)} to {kind}')
+    below = function.emit(f'icmp ugt {kind} {left}, {right}')
+    forward = function.emit(f'sub {kind} {left}, {right}')
+    backward = function.emit(f'sub {kind} {right}, {left}')
+    difference = function.emit(f'select <{count} x i1> {below}, {kind} {forward}, {kind} {backward}')
+    result = '0'
+    for group in range(bits // 64):
+        total = '0'
+        for lane in range(8):
+            element = function.emit(f'extractelement {kind} {difference}, i32 {group * 8 + lane}')
+            element = function.emit(f'zext i8 {element} to i64')
+            total = function.emit(f'add i64 {total}, {element}')
+        part = function.emit(f'zext i64 {total} to i{bits}')
+        part = function.emit(f'shl i{bits} {part}, {group * 64}')
+        result = function.emit(f'or i{bits} {result}, {part}')
+    return result
+
+
 def _lower_minmax(function, ins, bits, lane_bits, is_float, is_min):
     kind = _veckind(bits, lane_bits, is_float)
     left = function.emit(f'bitcast i{bits} {_read(function, ins, ins.operands[1], bits)} to {kind}')
@@ -629,6 +682,8 @@ def lower(function, ins):
     elif op in PACKED_INT:
         llvm_op, lane = PACKED_INT[op]
         _write(function, ins, args[0], _lower_binary(function, ins, bits, llvm_op, lane, False), bits)
+    elif op in PACKED_ODDS:
+        _write(function, ins, args[0], _lower_odd(function, ins, bits, op), bits)
     elif op in PACKED_CMPEQ or op in PACKED_CMPGT:
         lane = (PACKED_CMPEQ | PACKED_CMPGT)[op]
         predicate = 'eq' if op in PACKED_CMPEQ else 'sgt'

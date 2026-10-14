@@ -31,25 +31,14 @@ def analyze(function, ins, state):
     op, args = ins.mnemonic, ins.operands
     if op.startswith('stos') or op.startswith('rep stos'):
         width = 8 if op.endswith('b') else 16 if op.endswith('w') else 32 if op.endswith('d') else 64
-        value = function.load('rax', width)
-        label = f'rep_{ins.address:x}'
+        function.check_register(ins, state, 'rax', width)
+        function.check_register(ins, state, 'rdi', 64)
         if op.startswith('rep'):
-            function.lines.append(f'  br label %{label}_cond')
-            function.lines.append(f'{label}_cond:')
-            count = function.emit('load i64, ptr %rcx, align 8')
-            done = function.emit(f'icmp eq i64 {count}, 0')
-            function.lines.append(f'  br i1 {done}, label %{label}_done, label %{label}_body')
-            function.lines.append(f'{label}_body:')
-        pointer = function.emit('load i64, ptr %rdi, align 8')
-        address = function.emit(f'inttoptr i64 {pointer} to ptr')
-        function.lines.append(f'  store i{width} {value}, ptr {address}, align 1')
-        advanced = function.emit(f'add i64 {pointer}, {width // 8}')
-        function.lines.append(f'  store i64 {advanced}, ptr %rdi, align 8')
+            function.check_register(ins, state, 'rcx', 64)
+        # The store destination is implicit (rdi); rdi advances and, for rep, rcx counts down.
+        implicit_define(state, 'rdi', 64)
         if op.startswith('rep'):
-            remaining = function.emit(f'sub i64 {count}, 1')
-            function.lines.append(f'  store i64 {remaining}, ptr %rcx, align 8')
-            function.lines.append(f'  br label %{label}_cond')
-            function.lines.append(f'{label}_done:')
+            implicit_define(state, 'rcx', 64)
         return True
     conditional = op.startswith(('cmov', 'set'))
     if op not in OPERATIONS and not conditional:
@@ -382,9 +371,36 @@ def lower_divide(function, ins):
     function.store('rax' if width == 8 else 'rdx', remainder, width, 8 if width == 8 else 0)
 
 
+def lower_stos(function, ins):
+    op = ins.mnemonic
+    width = 8 if op.endswith('b') else 16 if op.endswith('w') else 32 if op.endswith('d') else 64
+    value = function.load('rax', width)
+    label = f'rep_{ins.address:x}'
+    if op.startswith('rep'):
+        function.lines.append(f'  br label %{label}_cond')
+        function.lines.append(f'{label}_cond:')
+        count = function.emit('load i64, ptr %rcx, align 8')
+        done = function.emit(f'icmp eq i64 {count}, 0')
+        function.lines.append(f'  br i1 {done}, label %{label}_done, label %{label}_body')
+        function.lines.append(f'{label}_body:')
+    pointer = function.emit('load i64, ptr %rdi, align 8')
+    address = function.emit(f'inttoptr i64 {pointer} to ptr')
+    function.lines.append(f'  store i{width} {value}, ptr {address}, align 1')
+    advanced = function.emit(f'add i64 {pointer}, {width // 8}')
+    function.lines.append(f'  store i64 {advanced}, ptr %rdi, align 8')
+    if op.startswith('rep'):
+        remaining = function.emit(f'sub i64 {count}, 1')
+        function.lines.append(f'  store i64 {remaining}, ptr %rcx, align 8')
+        function.lines.append(f'  br label %{label}_cond')
+        function.lines.append(f'{label}_done:')
+    return True
+
+
 def lower(function, ins):
     op, args = ins.mnemonic, ins.operands
     conditional = op.startswith(('cmov', 'set'))
+    if op.startswith('stos') or op.startswith('rep stos'):
+        return lower_stos(function, ins)
     if op not in OPERATIONS and not conditional:
         return False
     if conditional:
