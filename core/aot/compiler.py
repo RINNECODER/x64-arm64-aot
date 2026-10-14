@@ -64,6 +64,7 @@ for name in VECTOR_REGISTERS:
     ALIASES[name] = (name, 128, 0)
 TYPES = abi.TYPES
 MASK64 = (1 << 64) - 1
+FLAG_BITS = {'cf': 0, 'pf': 2, 'zf': 6, 'sf': 7, 'of': 11}
 FLAGS = {'zf', 'sf', 'cf', 'of', 'pf'}
 CONDITIONS = {'e': {'zf'}, 'ne': {'zf'}, 'b': {'cf'}, 'ae': {'cf'}, 'a': {'cf', 'zf'},
               'be': {'cf', 'zf'}, 'l': {'sf', 'of'}, 'ge': {'sf', 'of'}, 'g': {'sf', 'of', 'zf'},
@@ -1405,6 +1406,59 @@ class Function:
             gep = self.uniform_gep(block, 2, index)
             self.lines.append(f'  store i128 {value}, ptr {gep}, align 16')
 
+    def uniform_load_state(self, block):
+        """Load the integer flags and the x87 stack from the register file (entry only)."""
+        gep = self.uniform_gep(block, 3, 0)
+        flags = self.emit(f'load i64, ptr {gep}, align 8')
+        for name, bit in FLAG_BITS.items():
+            value = self.emit(f'lshr i64 {flags}, {bit}')
+            value = self.emit(f'trunc i64 {value} to i1')
+            self.lines.append(f'  store i1 {value}, ptr %{name}, align 1')
+        gep = self.uniform_gep(block, 5, 0)
+        stored = self.emit(f'load i64, ptr {gep}, align 8')
+        stored = self.emit(f'trunc i64 {stored} to i32')
+        self.lines.append(f'  store i32 {stored}, ptr %x87_top, align 4')
+        top = self.emit('load i32, ptr %x87_top, align 4')
+        for index in range(8):
+            # The register file holds st(0)..st(7); the native stack is a ring indexed by the top.
+            value = self.emit(f'load double, ptr {self.uniform_gep(block, 4, index)}, align 8')
+            self.lines.append(f'  store double {value}, ptr {self.x87_slot(top, index)}, align 8')
+
+    def x87_slot(self, top, index):
+        offset = self.emit(f'add i32 {top}, {index}')
+        offset = self.emit(f'and i32 {offset}, 7')
+        return self.emit(f'getelementptr [8 x double], ptr %x87, i32 0, i32 {offset}')
+
+    def uniform_store_state(self, block, defined):
+        """Store the integer flags and the x87 stack to the register file (return only).
+
+        Only the flags the analysis marks defined are published; the rest are zero and the
+        companion mask records which bits are meaningful, so a consumer (or the differential
+        harness) never treats an undefined flag as a real result.
+        """
+        result = mask = '0'
+        for name, bit in FLAG_BITS.items():
+            if name not in defined:
+                continue
+            value = self.emit(f'load i1, ptr %{name}, align 1')
+            value = self.emit(f'zext i1 {value} to i64')
+            value = self.emit(f'shl i64 {value}, {bit}')
+            result = self.emit(f'or i64 {result}, {value}')
+            mask = self.emit(f'or i64 {mask}, {1 << bit}')
+        gep = self.uniform_gep(block, 3, 0)
+        self.lines.append(f'  store i64 {result}, ptr {gep}, align 8')
+        gep = self.uniform_gep(block, 3, 1)
+        self.lines.append(f'  store i64 {mask}, ptr {gep}, align 8')
+        top = self.emit('load i32, ptr %x87_top, align 4')
+        for index in range(8):
+            value = self.emit(f'load double, ptr {self.x87_slot(top, index)}, align 8')
+            gep = self.uniform_gep(block, 4, index)
+            self.lines.append(f'  store double {value}, ptr {gep}, align 8')
+        top = self.emit(f'load i32, ptr %x87_top, align 4')
+        top = self.emit(f'zext i32 {top} to i64')
+        gep = self.uniform_gep(block, 5, 0)
+        self.lines.append(f'  store i64 {top}, ptr {gep}, align 8')
+
     def uniform_stack_out(self, block, rsp):
         if rsp is None:
             # A dispatch tail call whose frame the analysis could not track; the outgoing stack
@@ -1413,13 +1467,13 @@ class Function:
         for index in range(abi.UNIFORM_STACK_SLOTS):
             offset = abi.UNIFORM_STACK_BASE + 8 * index
             value = self.emit(f'load i64, ptr {self.frame_pointer(rsp + offset - 8)}, align 1')
-            gep = self.uniform_gep(block, 3, index)
+            gep = self.uniform_gep(block, 6, index)
             self.lines.append(f'  store i64 {value}, ptr {gep}, align 8')
 
     def uniform_stack_in(self, block):
         for index in range(abi.UNIFORM_STACK_SLOTS):
             offset = abi.UNIFORM_STACK_BASE + 8 * index
-            gep = self.uniform_gep(block, 3, index)
+            gep = self.uniform_gep(block, 6, index)
             value = self.emit(f'load i64, ptr {gep}, align 8')
             self.lines.append(f'  store i64 {value}, ptr {self.frame_pointer(offset)}, align 1')
 
@@ -1439,6 +1493,7 @@ class Function:
         self.lines.append(f'  call void {native}(ptr %rf_out)')
         self.uniform_load_registers('%rf_out', skip=('rsp',))
         if jump:
+            self.uniform_store_state('%rf', state['flags'])
             self.uniform_store_registers('%rf')
             self.lines.append('  ret void')
 
@@ -1488,6 +1543,7 @@ class Function:
         self.lines.append(f'  call void {target}(ptr %rf_out)')
         self.uniform_load_registers('%rf_out', skip=('rsp',))
         if tail:
+            self.uniform_store_state('%rf', state['flags'])
             self.uniform_store_registers('%rf')
             self.lines.append('  ret void')
 
@@ -1523,6 +1579,7 @@ class Function:
                 self.lines.append(f'  %{flag} = alloca i1, align 1')
                 self.lines.append(f'  store i1 false, ptr %{flag}, align 1')
             self.uniform_load_registers('%rf')
+            self.uniform_load_state('%rf')
             self.uniform_stack_in('%rf')
             self.store('rsp', self.emit(f'ptrtoint ptr {self.frame_pointer(0)} to i64'))
         else:
@@ -1693,6 +1750,7 @@ class Function:
                                     self.store_vector('xmm0', value, abi.bits(callee['result']), zero_upper=True)
                                 else:
                                     self.store('rax', value, abi.bits(callee['result']))
+                            self.uniform_store_state('%rf', state['flags'])
                             self.uniform_store_registers('%rf')
                             self.lines.append('  ret void')
                         else:
@@ -1706,6 +1764,7 @@ class Function:
                             self.store('rax', value, abi.bits(callee['result']))
             elif op == 'ret':
                 if self.uniform:
+                    self.uniform_store_state('%rf', state['flags'])
                     self.uniform_store_registers('%rf')
                     self.lines.append('  ret void')
                 elif result == 'void':
@@ -1843,7 +1902,7 @@ def compile_image(image, sink=None, emit_bodies=True):
         lines.append('declare double @fmod(double, double)')
     lines.extend(d for d in avx.INTRINSIC_DECLARATIONS if d not in lines)
     if any(abi.uniform(spec) for spec in image.functions.values()):
-        lines.append('%%regfile = type { [16 x i64], [16 x i128], [16 x i128], [%d x i64] }' % abi.UNIFORM_STACK_SLOTS)
+        lines.append('%%regfile = type { [16 x i64], [16 x i128], [16 x i128], [2 x i64], [8 x double], [1 x i64], [%d x i64] }' % abi.UNIFORM_STACK_SLOTS)
     dispatch_enabled = bool(image.contracts.get('dispatch'))
     # The dispatch table is keyed by host address: a relocated vtable entry already holds guest_base + target.
     dispatch_entries = sorted((image.guest_base + spec['address'], spec['name']) for spec in image.functions.values()) if dispatch_enabled else []

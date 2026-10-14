@@ -73,6 +73,8 @@ def uniform_function(name, address, size, **extra):
 class RegisterFile(ctypes.Structure):
     _fields_ = [('gpr', ctypes.c_uint64 * 16), ('xmm', (ctypes.c_uint64 * 2) * 16),
                 ('ymm_hi', (ctypes.c_uint64 * 2) * 16),
+                ('flags', ctypes.c_uint64), ('flags_mask', ctypes.c_uint64),
+                ('x87', ctypes.c_double * 8), ('x87_top', ctypes.c_uint64),
                 ('stack', ctypes.c_uint64 * UNIFORM_STACK_SLOTS)]
 
 
@@ -306,6 +308,34 @@ class UniformABITests(unittest.TestCase):
         subprocess.run(['xcrun', 'clang', '-arch', 'x86_64', '-O2', str(source), str(runner), '-o', str(binary)],
                        check=True, capture_output=True)
         return subprocess.run([str(binary)], input=data, check=True, capture_output=True).stdout[:32]
+
+    def test_uniform_flags_mask_excludes_undefined_flags(self):
+        # `add` defines OF; `shr eax, 8` leaves OF undefined (the hardware clears it but the
+        # architecture does not define it), so the published mask must not claim it.
+        for index, (code, published) in enumerate(((bytes.fromhex('83c001c3'), True),
+                                                   (bytes.fromhex('c1e808c3'), False))):
+            # A fresh directory per iteration: ctypes.CDLL caches by path.
+            self.directory = self.directory / str(index)
+            self.directory.mkdir()
+            raw, contracts = fixture(code, [uniform_function('sub_1000', 0x1000, len(code))])
+            function, ir, _ = self.compile(raw, contracts, 'sub_1000')
+            registers = RegisterFile()
+            registers.gpr[0] = 0x80000000
+            function(ctypes.byref(registers))
+            self.assertEqual(bool(registers.flags_mask & 0x800), published, code.hex())
+            if not published:
+                self.assertEqual(registers.flags & 0x800, 0, code.hex())
+
+    def test_uniform_x87_stack_is_published(self):
+        # fld qword [rdi] ; ret — st(0) must appear at the register file's x87[0], not the ring index.
+        code = bytes.fromhex('dd07c3')
+        raw, contracts = fixture(code, [uniform_function('sub_1000', 0x1000, len(code))])
+        function, ir, _ = self.compile(raw, contracts, 'sub_1000')
+        registers = RegisterFile()
+        source = ctypes.create_string_buffer(struct.pack('<d', 1.5), 8)
+        registers.gpr[7] = ctypes.addressof(source)
+        function(ctypes.byref(registers))
+        self.assertEqual(registers.x87[0], 1.5)
 
     def test_uniform_call_preserves_ymm_upper_halves(self):
         # 0x1000: vmovdqu ymm0,[rdi] ; call 0x1010 ; vmovdqu [rsi],ymm0 ; ret   0x1010: ret

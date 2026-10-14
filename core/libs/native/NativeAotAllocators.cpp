@@ -14,6 +14,9 @@ struct RegFile {
     std::uint64_t gpr[16];
     unsigned __int128 xmm[16];
     unsigned __int128 ymm_hi[16];
+    std::uint64_t flags;
+    double x87[8];
+    std::uint64_t x87_top;
     std::uint64_t stack[32];
 };
 
