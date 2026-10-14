@@ -1756,7 +1756,12 @@ def stub_function(spec, reason):
                       '  call void @llvm.trap()', '  unreachable', '}'])
 
 
-def compile_image(image):
+def compile_image(image, sink=None):
+    """Lower the whole image to LLVM IR.
+
+    With `sink`, the preamble, each body and each stub are written out as they are produced and
+    the IR is not returned; a title's module is far too large to assemble in memory.
+    """
     # A whole-title build sets allow_unimplemented so a rejected body becomes a reporting trap
     # stub instead of failing the image; the SDK samples keep the strict default.
     tolerant = bool(image.contracts.get('allow_unimplemented'))
@@ -1934,17 +1939,28 @@ def compile_image(image):
         function.entry_index = function.contract.get('entry_index')
     bodies = []
     late_stubs = []
+    if sink is not None:
+        sink('\n\n'.join(lines))
     for function in functions:
         try:
-            bodies.append(function.lower())
+            body = function.lower()
         except Rejected as error:
             if not tolerant:
                 raise
             # The stub is the body here; do not emit it a second time below.
             late_stubs.append((function.contract, str(error)))
-            bodies.append(stub_function(function.contract, str(error)))
-    lines.extend(bodies)
-    lines.extend(stub_function(spec, reason) for spec, reason in stubs)
+            body = stub_function(function.contract, str(error))
+        if sink is None:
+            bodies.append(body)
+        else:
+            sink('\n\n' + body)
+    if sink is None:
+        lines.extend(bodies)
+        lines.extend(stub_function(spec, reason) for spec, reason in stubs)
+    else:
+        for spec, reason in stubs:
+            sink('\n\n' + stub_function(spec, reason))
+        sink('\n')
     stubs.extend(late_stubs)
     if image.hle_log:
         lines.append('declare i64 @HleLogCall(ptr, i64, i64, i64, i64, i64, i64)')
@@ -1980,6 +1996,8 @@ def compile_image(image):
               'indirect_calls': [site for sites in image.call_contracts.values() for site in sites.values()],
               'limitations': ['declared function boundaries and ABIs', 'declared scalar, SSE and AVX instruction subsets', 'no guest exception or TLS recovery', 'computed jumps limited to immutable absolute relocation tables', 'other indirect call target sets remain declared with runtime membership checks',
                               'no game compatibility or performance qualification']}
+    if sink is not None:
+        return None, report
     return '\n\n'.join(lines) + '\n', report
 
 
@@ -1989,10 +2007,19 @@ def main():
     parser.add_argument('--contracts', type=Path, required=True)
     parser.add_argument('--output', type=Path, required=True)
     parser.add_argument('--object', type=Path)
+    parser.add_argument('--stream', action='store_true',
+                        help='write the IR to --output as it is produced instead of assembling it in memory')
     parser.add_argument('--target', choices=TARGETS, default='apple-arm64')
     args = parser.parse_args()
     try:
         image = Image(args.input, json.loads(args.contracts.read_text()), args.target)
+        if args.stream:
+            if args.object:
+                parser.error('--stream cannot be combined with --object')
+            with open(args.output, 'w') as output:
+                _, report = compile_image(image, sink=output.write)
+            args.output.with_suffix('.json').write_text(json.dumps(report, indent=2) + '\n')
+            return
         ir, report = compile_image(image)
         if args.object:
             from toolchain import build_native_object

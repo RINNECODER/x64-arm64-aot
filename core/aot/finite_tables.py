@@ -15,6 +15,10 @@ def discover(image):
     if not isinstance(records, list) or not all(isinstance(r, dict) and type(r.get('address')) is int for r in records):
         return {}, {}
     regions = {record['address'] for record in records}
+    if not regions:
+        # No immutable-data region means no finite table can be qualified, so skip the whole-image
+        # disassembly scan (it dominated Image construction on a title with none).
+        return {}, {}
     result, labels = {}, {}
     for owner in image.functions.values():
         bases = {}

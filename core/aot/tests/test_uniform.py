@@ -196,6 +196,19 @@ class UniformABITests(unittest.TestCase):
         function(ctypes.byref(registers))
         self.assertEqual(registers.gpr[GPR['rax']], 42)
 
+    def test_streamed_image_matches_the_in_memory_image(self):
+        # The sink path writes the preamble, bodies and stubs as they are produced; it must be
+        # byte-identical to the assembled module, including the separators and trailing newline.
+        code = bytes.fromhex('b801000000c3')  # mov eax, 1 ; ret
+        raw, contracts = fixture(code, [uniform_function('sub_1000', 0x1000, len(code))])
+        source = self.directory / 'input.elf'
+        source.write_bytes(raw)
+        ir, _ = compile_image(Image(source, contracts))
+        pieces = []
+        _, report = compile_image(Image(source, contracts), sink=pieces.append)
+        self.assertEqual(''.join(pieces), ir)
+        self.assertEqual(len(report['functions']), 1)
+
     def native_guest(self, code, rdi):
         """Run the guest bytes natively (x86_64) and return rax, as a reference."""
         UniformABITests.serial += 1
