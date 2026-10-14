@@ -322,6 +322,19 @@ class AvxTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, 'undefined bits'):
             avx.analyze(emitter, instructions[1], emitter.state)
 
+    def test_scalar_move_zeroes_upper_definedness(self):
+        # VEX.128 vmovss/vmovsd with a memory source zeroes bits 127:lane (and 255:128),
+        # so those bits are defined and a later full-width read must not be rejected.
+        for mnemonic, operand in (('vmovss', 'dword ptr [rsi]'), ('vmovsd', 'qword ptr [rsi]')):
+            with self.subTest(mnemonic=mnemonic):
+                instructions, _ = self.instructions(f'{mnemonic} xmm0, {operand}\nvmovups [rdx], xmm0')
+                emitter = Emitter()
+                emitter.state['known'].clear()
+                for ins in instructions:
+                    self.assertTrue(avx.analyze(emitter, ins, emitter.state), ins.mnemonic)
+                self.assertEqual(emitter.state['known']['xmm0'], avx.MASK128)
+                self.assertEqual(emitter.state['known']['ymm_hi0'], avx.MASK128)
+
     def test_vzeroupper_retains_low_definedness(self):
         instructions, _ = self.instructions('vzeroupper')
         emitter = Emitter()

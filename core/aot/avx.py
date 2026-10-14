@@ -242,12 +242,10 @@ def analyze(function, ins, state):
         lane = 32 if op == 'vmovss' else 64
         if _register(ins, args[0]):
             if len(args) == 2:
+                # The two-operand form zeroes bits above the scalar lane, so those bits are
+                # defined regardless of the previous contents of the destination.
                 source = _known(function, ins, state, args[1], lane)
-                if args[1].type == X86_OP_MEM:
-                    known = source & ((1 << lane) - 1)
-                else:
-                    previous = _known(function, ins, state, args[0], 128)
-                    known = (previous & (MASK128 ^ ((1 << lane) - 1))) | (source & ((1 << lane) - 1))
+                known = (source & ((1 << lane) - 1)) | (MASK128 ^ ((1 << lane) - 1))
             else:
                 previous = _known(function, ins, state, args[1], 128)
                 source = _known(function, ins, state, args[2], lane)
@@ -573,12 +571,7 @@ def lower(function, ins):
         lane = 32 if op == 'vmovss' else 64
         if _register(ins, args[0]):
             if len(args) == 2:
-                if args[1].type == X86_OP_MEM:
-                    value = function.emit(f'zext i{lane} {read(args[1], lane)} to i128')
-                else:
-                    old = read(args[0], 128)
-                    high = function.emit(f'and i128 {old}, {MASK128 ^ ((1 << lane) - 1)}')
-                    value = function.emit(f'or i128 {high}, {function.emit(f"zext i{lane} {read(args[1], lane)} to i128")}')
+                value = function.emit(f'zext i{lane} {read(args[1], lane)} to i128')
             else:
                 high = function.emit(f'and i128 {read(args[1], 128)}, {MASK128 ^ ((1 << lane) - 1)}')
                 value = function.emit(f'or i128 {high}, {function.emit(f"zext i{lane} {read(args[2], lane)} to i128")}')
