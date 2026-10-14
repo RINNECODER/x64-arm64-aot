@@ -306,9 +306,11 @@ class Image:
                 if self.guest_data:
                     return f'inttoptr (i64 {self.guest_base + address} to ptr)'
                 return f"getelementptr (i8, ptr @{self.namespace}data_{spec['address']:x}, i64 {address - spec['address']})"
-        if self.guest_data and any(spec['p_vaddr'] <= address and address + size <= spec['p_vaddr'] + spec['p_filesz']
+        if self.guest_data and any(spec['p_vaddr'] <= address and address + size <= spec['p_vaddr'] + spec['p_memsz']
                                    for spec in self.segments):
-            # Any other mapped segment (the SCE process-parameter segment).
+            # Any other mapped segment: the SCE process-parameter segment, and the zero-filled tail a
+            # segment's memory size adds past its file size. The runtime maps and zero-fills the whole
+            # memory size, so an address in the tail is mapped and needs a contract too.
             return f'inttoptr (i64 {self.guest_base + address} to ptr)'
         raise Rejected(f'no native pointer contract for 0x{address:x}')
 

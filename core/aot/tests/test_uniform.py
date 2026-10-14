@@ -152,6 +152,22 @@ class UniformABITests(unittest.TestCase):
         self.assertEqual(registers.gpr[GPR['r13']], (entered - 0x121) & ~0x1F)
         self.assertEqual(registers.gpr[GPR['rsp']], entered)
 
+    def test_guest_data_resolves_a_segment_tail_address(self):
+        # mov byte ptr [0x5ff8], 0x58 ; ret. A uniform function may address memory absolutely. The
+        # address is past the segment's file-backed range but inside the memory the runtime maps and
+        # zero-fills, so the segment fallback has to use the mapped extent, not the file extent.
+        code = bytes.fromhex('c60425f85f000058c3')
+        raw, contracts = fixture(code, [uniform_function('sub_1000', 0x1000, len(code))])
+        image = bytearray(raw)
+        struct.pack_into('<Q', image, 120 + 40, 0x6000)  # data segment p_memsz > p_filesz
+        source = self.directory / 'input.elf'
+        source.write_bytes(bytes(image))
+        ir, report = compile_image(Image(source, dict(contracts, data=[],
+                                                      sha256=hashlib.sha256(bytes(image)).hexdigest(),
+                                                      guest_data=True, guest_base=0x140000000)))
+        self.assertIn(f'{0x140000000 + 0x5ff8}', ir)
+        self.assertEqual(report['unimplemented_functions'], 0)
+
     def test_uniform_pointer_argument_loads_the_register_not_an_undefined_arg(self):
         # mov rax, [rdi] ; ret -> rax = *(u64*)rdi. The uniform ABI keeps rdi in its
         # own alloca; a pointer dereference must use that value, not a typed %argN.
