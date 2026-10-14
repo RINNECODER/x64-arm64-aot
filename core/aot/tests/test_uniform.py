@@ -343,6 +343,91 @@ class UniformABITests(unittest.TestCase):
             function(ctypes.byref(registers))
             self.assertEqual(registers.gpr[GPR['rax']], expected)
 
+    def test_uniform_unsaved_pop_reads_the_caller_window(self):
+        # 0x1000: add rsp,8 ; pop rax ; sub rsp,16 ; ret — the popped slot was never pushed here,
+        # but it is a declared caller stack slot, so the caller's first stack argument comes back.
+        code = bytes.fromhex('4883c408584883ec10c3')
+        raw, contracts = fixture(code, [uniform_function('sub_1000', 0x1000, len(code))])
+        function, ir, _ = self.compile(raw, contracts, 'sub_1000')
+        registers = RegisterFile()
+        registers.stack[0] = 0x2A
+        function(ctypes.byref(registers))
+        self.assertEqual(registers.gpr[GPR['rax']], 0x2A)
+
+    def test_uniform_unsaved_pop_of_the_return_address_slot(self):
+        # 0x1000: pop r10 ; lea rsp,[rsp+rcx*8+8] ; push r10 ; ret — the popped slot is the guest
+        # return-address slot, which the uniform ABI does not model. The function must lower, and
+        # the value must be an arbitrary but defined one: never a load of memory nothing wrote.
+        code = bytes.fromhex('415a488d64cc084152c3')
+        raw, contracts = fixture(code, [uniform_function('sub_1000', 0x1000, len(code))])
+        function, ir, _ = self.compile(raw, contracts, 'sub_1000')
+        self.assertIn('freeze i64 poison', ir)
+        self.assertNotIn('load i64, ptr %frame', ir)
+        function(ctypes.byref(RegisterFile()))
+
+    def test_uniform_releases_a_stale_saved_slot(self):
+        # 0x1000: push rbx ; lea rsp,[rsp+8] ; test rdi,rdi ; je 0x1010 ; nops ; 0x1010: mov rax,rbx ; ret
+        # The lea gives the pushed slot back, so both paths into 0x1010 must agree on an empty frame.
+        code = bytearray(0x14)
+        code[0x00:0x0B] = bytes.fromhex('53488d6424084885ff7405')
+        code[0x0B:0x10] = bytes([0x90] * 5)
+        code[0x10:0x14] = bytes.fromhex('4889d8c3')
+        raw, contracts = fixture(bytes(code), [uniform_function('sub_1000', 0x1000, 0x14)])
+        function, ir, _ = self.compile(raw, contracts, 'sub_1000')
+        registers = RegisterFile()
+        registers.gpr[GPR['rbx']] = 0x99
+        function(ctypes.byref(registers))
+        self.assertEqual(registers.gpr[GPR['rax']], 0x99)
+
+    def test_uniform_forwards_a_stack_argument_on_a_tail_call(self):
+        # 0x1000: jmp 0x1010   0x1010: mov rax,[rsp+8] ; ret — a tail jmp leaves the return address at
+        # [rsp], so the callee's first stack argument is the caller's [rsp+8], not its [rsp].
+        code = bytearray(0x14)
+        code[0x00:0x05] = b'\xe9' + (0x1010 - 0x1005).to_bytes(4, 'little', signed=True)
+        code[0x10:0x16] = bytes.fromhex('488b442408c3')
+        functions = [uniform_function('sub_1000', 0x1000, 0x10),
+                     uniform_function('sub_1010', 0x1010, 6)]
+        raw, contracts = fixture(bytes(code), functions)
+        function, ir, _ = self.compile(raw, contracts, 'sub_1000')
+        registers = RegisterFile()
+        registers.stack[0] = 0x2A
+        function(ctypes.byref(registers))
+        self.assertEqual(registers.gpr[GPR['rax']], 0x2A)
+
+    def test_uniform_runtime_sized_frame_join(self):
+        # 0x1000: mov ecx,edi ; xor edx,edx ; loop{cmp edx,ecx ; jge done ; push rdx ; inc edx ;
+        # jmp loop} ; done: mov rax,[rsp] ; lea rsp,[rsp+rcx*8] ; ret — the loop pushes a runtime
+        # number of values, so the join at the loop head has no static frame; the pushes and the
+        # read then happen at the runtime guest rsp.
+        code = bytearray(0x20)
+        body = bytearray()
+        body += bytes.fromhex('89f9')        # mov ecx, edi
+        body += bytes.fromhex('31d2')        # xor edx, edx
+        loop = 0x1000 + len(body)
+        body += bytes.fromhex('39ca')        # cmp edx, ecx
+        jge_at = 0x1000 + len(body)
+        body += b'\x7d\x00'
+        body += bytes.fromhex('52')          # push rdx
+        body += bytes.fromhex('ffc2')        # inc edx
+        jmp_at = 0x1000 + len(body)
+        body += b'\xeb\x00'
+        done = 0x1000 + len(body)
+        body += bytes.fromhex('488b0424')    # mov rax, [rsp]
+        body += bytes.fromhex('488d0ccc')    # lea rcx, [rsp + rcx*8]
+        body += bytes.fromhex('4889cc')      # mov rsp, rcx
+        body += bytes.fromhex('c3')          # ret
+        body[jge_at - 0x1000 + 1] = (done - (jge_at + 2)) & 0xFF
+        body[jmp_at - 0x1000 + 1] = (loop - (jmp_at + 2)) & 0xFF
+        code[0:len(body)] = body
+        raw, contracts = fixture(bytes(code), [uniform_function('sub_1000', 0x1000, len(body))])
+        function, ir, _ = self.compile(raw, contracts, 'sub_1000')
+        for count in (1, 2, 3):
+            registers = RegisterFile()
+            registers.gpr[GPR['rdi']] = count
+            function(ctypes.byref(registers))
+            self.assertEqual(registers.gpr[GPR['rax']], count - 1)
+            self.assertEqual(registers.gpr[GPR['rax']], self.native_guest(bytes(code), count))
+
     def test_uniform_fallthrough_tail_call_balanced_frame(self):
         # 0x1000: mov rax,rdi ; nops ; cmp rax,0 (last, falls through)   0x1010: ret
         code = bytearray(0x14)
