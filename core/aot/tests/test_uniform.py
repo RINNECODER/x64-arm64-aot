@@ -8,7 +8,7 @@ import unittest
 from pathlib import Path
 
 from abi import (ABIError, UNIFORM_STACK_SLOTS, uniform, uniform_locations, signature)
-from compiler import Function, Image, compile_image
+from compiler import Function, Image, Rejected, compile_image
 
 
 def fixture(code, functions, imports=None, relocations=None, data_bindings=None, bindings=None, dispatch=False, tls=None):
@@ -204,6 +204,33 @@ class UniformABITests(unittest.TestCase):
         registers = RegisterFile()
         function(ctypes.byref(registers))
         self.assertEqual(registers.gpr[GPR['rax']], 0x1234)
+
+    def test_uniform_borrows_an_interior_entry_of_the_next_function(self):
+        # A false function start splits one real function into fragments, and a branch from one
+        # fragment reaches the middle of another. sub_1000 tests rdi and, when it is nonzero,
+        # branches to 0x1028, which is 8 bytes into sub_1020; the taken path must run the
+        # interior entry's code (mov rax, 3) instead of rejecting the escape.
+        body = bytes.fromhex('4885ff0f851f00000048c7c001000000c3' + '90' * 15)
+        other = bytes.fromhex('48c7c002000000c348c7c003000000c3')
+        raw, contracts = fixture(body + other, [uniform_function('sub_1000', 0x1000, 0x20),
+                                                uniform_function('sub_1020', 0x1020, 0x10)])
+        function, ir, _ = self.compile(raw, contracts, 'sub_1000')
+        for argument, expected in ((0, 1), (1, 3)):
+            with self.subTest(rdi=argument):
+                registers = RegisterFile()
+                registers.gpr[GPR['rdi']] = argument
+                function(ctypes.byref(registers))
+                self.assertEqual(registers.gpr[GPR['rax']], expected)
+
+    def test_uniform_borrowing_needs_both_contracts_to_be_uniform(self):
+        # The scalar ABI's native frame is the guest frame, so a scalar fragment cannot continue at
+        # another function's interior entry; the escape must still be rejected.
+        body = bytes.fromhex('4885ff0f851f00000048c7c001000000c3' + '90' * 15)
+        other = bytes.fromhex('48c7c002000000c348c7c003000000c3')
+        scalar = {'name': 'sub_1000', 'address': 0x1000, 'size': 0x20, 'parameters': [], 'result': 'void'}
+        raw, contracts = fixture(body + other, [scalar, uniform_function('sub_1020', 0x1020, 0x10)])
+        with self.assertRaisesRegex(Rejected, 'control flow escapes function contract'):
+            self.compile(raw, contracts, 'sub_1000')
 
     def test_uniform_pointer_argument_loads_the_register_not_an_undefined_arg(self):
         # mov rax, [rdi] ; ret -> rax = *(u64*)rdi. The uniform ABI keeps rdi in its

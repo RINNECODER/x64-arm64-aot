@@ -1,5 +1,6 @@
 from elf_segments import runtime_segments
 import argparse
+import bisect
 import hashlib
 import io
 import json
@@ -154,6 +155,7 @@ class Image:
         ordered = sorted(self.functions.values(), key=lambda f: f['address'])
         for left, right in zip(ordered, ordered[1:]):
             require(left['address'] + left['size'] <= right['address'], 'overlapping function contracts')
+        self.function_starts = sorted(self.functions)
         require(self.elf['e_entry'] in self.functions or (contracts.get('module_image') and self.elf['e_entry'] == 0), 'entry function has no contract')
         self.imports = contracts['imports']
         self.hle_log = bool(contracts.get('hle_log'))
@@ -296,6 +298,16 @@ class Image:
         begin = segment['p_offset'] + offset
         return self.bytes[begin:begin + available] + bytes(size - available)
 
+    def read_code(self, address, size=15):
+        """Read up to `size` instruction bytes without requiring a whole segment window.
+
+        A function's last instruction, and a borrowed continuation entry, can sit close enough
+        to the end of a segment that a fixed read would run off the mapped window.
+        """
+        segment = self.segment(address, 1)
+        available = max(1, min(size, segment['p_vaddr'] + segment['p_memsz'] - address))
+        return self.read(address, available)
+
     def pointer(self, address, size=1):
         if address in getattr(self, 'jump_labels', {}) and size == 1:
             return f'blockaddress(@{self.jump_labels[address]}, %b{address:x})'
@@ -313,6 +325,26 @@ class Image:
             # memory size, so an address in the tail is mapped and needs a contract too.
             return f'inttoptr (i64 {self.guest_base + address} to ptr)'
         raise Rejected(f'no native pointer contract for 0x{address:x}')
+
+    def containing_function(self, address):
+        """The declared function whose declared range contains the address, if any."""
+        index = bisect.bisect_right(self.function_starts, address) - 1
+        if index < 0:
+            return None
+        function = self.functions[self.function_starts[index]]
+        if function['address'] <= address < function['address'] + function['size']:
+            return function
+        return None
+
+    def is_import_stub(self, address):
+        """Whether the address is a PLT stub for an import (a tail-call target, not a code interior)."""
+        if address in self.functions:
+            return False
+        try:
+            self.callee(address)
+            return True
+        except Rejected:
+            return False
 
     def callee(self, address):
         if address in self.functions:
@@ -408,6 +440,26 @@ class Function:
         if not getattr(self, 'collecting', False):
             self.fail(ins, message)
 
+    def borrowable(self, address):
+        """Whether an out-of-contract branch target may be decoded as a continuation entry.
+
+        A false function start splits one real function into fragments, and a branch from one
+        fragment then reaches the middle of another. When both contracts use the uniform
+        register-file ABI their frames are interchangeable, so the target block is a valid
+        continuation entry and decoding may cross the boundary. This only applies to addresses
+        that would otherwise be rejected, so it cannot change a function that already stays
+        inside its contract.
+        """
+        if not self.uniform or not self.image.contracts.get('borrow_interior_entries', True):
+            return False
+        if address in self.image.functions or self.image.is_import_stub(address):
+            return False
+        owner = self.image.containing_function(address)
+        return owner is not None and owner['address'] != self.contract['address'] and abi.uniform(owner)
+
+    def inside(self, address, start, end):
+        return start <= address < end or self.borrowable(address)
+
     def discover(self):
         start, end = self.contract['address'], self.contract['address'] + self.contract['size']
         pending = [(start, None)]
@@ -416,9 +468,9 @@ class Function:
             address, predecessor = pending.pop()
             if address in self.instructions:
                 continue
-            if not (start <= address < end):
+            if not self.inside(address, start, end):
                 raise Rejected(f"control flow escapes function contract to 0x{address:x} from {predecessor}")
-            decoded = list(self.image.decoder.disasm(self.image.read(address, min(15, end - address)), address, count=1))
+            decoded = list(self.image.decoder.disasm(self.image.read_code(address), address, count=1))
             require(len(decoded) == 1, f'cannot decode 0x{address:x}')
             ins = decoded[0]
             for byte in range(address, address + ins.size):
@@ -444,15 +496,22 @@ class Function:
                             self.fail(ins, 'indirect branches require a proven direct function or GOT import target')
                         try:
                             self.tail_calls[address] = self.image.call(ins)
+                            successors = []
                         except Rejected as error:
-                            if not self.dispatch:
+                            if not self.dispatch and operand.type == X86_OP_IMM and self.borrowable(operand.imm):
+                                # A false function start split the real function: continue decoding
+                                # at the interior entry instead of rejecting the tail call. A
+                                # dispatch build keeps its runtime fallback for a direct jmp.
+                                successors = [operand.imm]
+                            elif not self.dispatch:
                                 self.fail(ins, f'unresolved native tail-call target: {error}')
-                            self.dispatch_jumps[address] = True
-                        successors = []
+                            else:
+                                self.dispatch_jumps[address] = True
+                                successors = []
             elif ins.mnemonic.startswith('j'):
                 require(ins.operands[0].type == X86_OP_IMM, 'indirect branches require target-set reconstruction')
                 target = ins.operands[0].imm
-                if not (start <= target < end) and target in self.image.functions:
+                if not self.inside(target, start, end) and target in self.image.functions:
                     # A conditional branch into another function is a conditional tail call.
                     self.tail_calls[address] = (self.image.functions[target], None)
                     successors = [next_address]
