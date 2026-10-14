@@ -168,6 +168,19 @@ class UniformABITests(unittest.TestCase):
         self.assertIn(f'{0x140000000 + 0x5ff8}', ir)
         self.assertEqual(report['unimplemented_functions'], 0)
 
+    def test_uniform_dynamic_frame_stack_transfer(self):
+        # mov r14, rsp ; sub rsp, rax ; mov r12, rdi ; push r12 ; pop r13 ; mov rsp, r14 ; ret.
+        # `sub rsp, rax` is a runtime-sized frame, so the push and the pop transfer at the guest rsp
+        # value rather than at a frame offset; r13 has to see the value that was pushed.
+        code = bytes.fromhex('4989e64829c44989fc4154415d4c89f4c3')
+        raw, contracts = fixture(code, [uniform_function('sub_1000', 0x1000, len(code))])
+        function, ir, _ = self.compile(raw, contracts, 'sub_1000')
+        registers = RegisterFile()
+        registers.gpr[GPR['rdi']] = 0x1234
+        registers.gpr[GPR['rax']] = 0x40
+        function(ctypes.byref(registers))
+        self.assertEqual(registers.gpr[GPR['r13']], 0x1234)
+
     def test_uniform_pointer_argument_loads_the_register_not_an_undefined_arg(self):
         # mov rax, [rdi] ; ret -> rax = *(u64*)rdi. The uniform ABI keeps rdi in its
         # own alloca; a pointer dereference must use that value, not a typed %argN.

@@ -44,12 +44,18 @@ def transfer(function, ins, original, state):
             if origin is not None and origin[0] == 'frame':
                 store(origin[1], operand.size, operand_value(function, ins, original, ins.operands[1]))
     if ins.mnemonic == 'push':
-        store(original['rsp'] - 8, 8, operand_value(function, ins, original, ins.operands[0]))
+        if original['rsp'] is None:
+            values.clear()  # a dynamic frame: the slot is not a known frame offset
+        else:
+            store(original['rsp'] - 8, 8, operand_value(function, ins, original, ins.operands[0]))
     elif ins.mnemonic == 'pop':
-        value = read(original, original['rsp'], 8)
-        if value is not None:
-            state['constants'][function.reg(ins, ins.operands[0])[0]] = value
-        invalidate(original['rsp'], original['rsp'] + 8)
+        if original['rsp'] is None:
+            values.clear()
+        else:
+            value = read(original, original['rsp'], 8)
+            if value is not None:
+                state['constants'][function.reg(ins, ins.operands[0])[0]] = value
+            invalidate(original['rsp'], original['rsp'] + 8)
     elif ins.mnemonic == 'call':
         writes = effects.call_writes(function, ins, original)
         if writes is None or writes.parameter_writes:

@@ -659,10 +659,26 @@ class Function:
             if op == 'push':
                 if args[0].type == X86_OP_MEM:
                     self.read_operand(ins, state, args[0])
+                if state['rsp'] is None:
+                    # A dynamic frame. The uniform ABI keeps the guest rsp in the register file, so the
+                    # slot is a real address the lowering can store to; only its value is unknown.
+                    if not self.uniform:
+                        self.fail(ins, 'unknown stack transfer')
+                    return state
                 state['rsp'] -= 8
                 state['saved'][state['rsp']] = (name, state['known'].get(name, 0) if name else MASK64, state['rbp'] if name == 'rbp' else None, state['pointers'].get(name))
                 self.depth = max(self.depth, -state['rsp'] + 128)
             else:
+                if state['rsp'] is None:
+                    # Same as push: the transfer happens at the guest rsp, which is a real address in
+                    # this ABI, so the destination becomes unknown instead of rejecting the function.
+                    if not self.uniform:
+                        self.fail(ins, 'unknown stack transfer')
+                    for table in ('known', 'constants', 'pointers'):
+                        state[table].pop(name, None)
+                    if name == 'rbp':
+                        state['rbp'] = None
+                    return state
                 saved = state['saved'].pop(state['rsp'], None)
                 if saved is None:
                     self.fail(ins, 'unknown stack transfer')
@@ -753,7 +769,11 @@ class Function:
             # `ret imm16` is callee stack cleanup; in the uniform ABI the caller restores its own
             # rsp around a call, so the immediate is redundant and can be ignored.
             if state['rsp'] != 0 or state['saved']:
-                self.fail(ins, 'unbalanced native frame')
+                # The uniform ABI keeps the guest rsp in the register file and the native frame is the
+                # compiler's own alloca, so a runtime-sized guest rsp at the return unbalances nothing
+                # natively; the scalar ABI's native frame is the guest frame, so it still must balance.
+                if not (self.uniform and state['rsp'] is None and not state['saved']):
+                    self.fail(ins, 'unbalanced native frame')
             if self.contract['result'] != 'void':
                 self.check_register(ins, state, abi.return_register(self.contract['result']), abi.bits(self.contract['result']))
                 if self.contract['result'] == 'ptr' and 'rax' not in state['native_pointers'] and state['constants'].get('rax') != 0:
@@ -814,6 +834,11 @@ class Function:
                         # analysis cannot pin down is representable and `and rsp, -32` / `sub rsp, rax`
                         # already take this path; a register source is the same runtime-sized frame
                         # restored through a register.
+                        state[dest] = None
+                    elif (self.uniform and op == 'lea' and args[0].size == 8 and args[1].type == X86_OP_MEM
+                          and (args[1].mem.index or ins.reg_name(args[1].mem.base) in ('rsp', 'rbp'))):
+                        # An indexed adjustment of the guest rsp, e.g. the `lea rsp, [rsp + rcx*8 + 8]`
+                        # a dynamic-allocation thunk uses to give the stack back: still a dynamic frame.
                         state[dest] = None
                     else:
                         self.fail(ins, 'unsupported frame manipulation')
@@ -1010,7 +1035,13 @@ class Function:
                         bindings.discard(offset)
                     if add_cell:
                         image_add(begin)
-        if op == 'push':
+        if op in ('push', 'pop') and original['rsp'] is None:
+            # A dynamic frame: the transfer happens at the guest rsp value, not at a frame slot, so
+            # there is no slot bookkeeping and the popped destination loses its provenance.
+            if op == 'pop':
+                state['pointers'].pop(self.reg(ins, args[0])[0], None)
+            native.add('rsp')
+        elif op == 'push':
             offset = original['rsp'] - 8
             stack = {saved for saved in stack if not (offset < saved + 8 and saved < offset + 8)}
             origins = {saved: pointer for saved, pointer in origins.items() if not (offset < saved + 8 and saved < offset + 8)}
@@ -1640,7 +1671,24 @@ class Function:
                 pass
             elif op in ('push', 'pop'):
                 reg = self.reg(ins, args[0])[0] if args[0].type == X86_OP_REG else None
-                if op == 'push':
+                if state['rsp'] is None:
+                    # A dynamic frame: transfer at the guest rsp value, which this ABI keeps in the
+                    # register file, rather than at a frame offset.
+                    rsp = self.load('rsp')
+                    if op == 'push':
+                        if reg is None or state['known'].get(reg, 0):
+                            value = self.read(ins, args[0], 64)
+                            rsp = self.emit(f'sub i64 {rsp}, 8')
+                            slot = self.emit(f'inttoptr i64 {rsp} to ptr')
+                            self.lines.append(f'  store i64 {value}, ptr {slot}, align 1')
+                        else:
+                            rsp = self.emit(f'sub i64 {rsp}, 8')
+                    else:
+                        slot = self.emit(f'inttoptr i64 {rsp} to ptr')
+                        self.store(reg, self.emit(f'load i64, ptr {slot}, align 1'))
+                        rsp = self.emit(f'add i64 {rsp}, 8')
+                    self.store('rsp', rsp)
+                elif op == 'push':
                     if reg is None or state['known'].get(reg, 0):
                         value = self.read(ins, args[0], 64)
                         self.lines.append(f"  store i64 {value}, ptr {self.frame_pointer(state['rsp'] - 8)}, align 1")
@@ -1649,7 +1697,8 @@ class Function:
                     if state['saved'][state['rsp']][1]:
                         self.store(reg, self.emit(f"load i64, ptr {self.frame_pointer(state['rsp'])}, align 1"))
                     offset = state['rsp'] + 8
-                self.store('rsp', self.emit(f'ptrtoint ptr {self.frame_pointer(offset)} to i64'))
+                if state['rsp'] is not None:
+                    self.store('rsp', self.emit(f'ptrtoint ptr {self.frame_pointer(offset)} to i64'))
             elif op in ('mov', 'movabs'):
                 self.write(ins, args[0], self.read(ins, args[1], args[0].size * 8))
             elif op in ('movzx', 'movsx', 'movsxd'):
