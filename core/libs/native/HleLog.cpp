@@ -4,11 +4,15 @@
 #include <cstdlib>
 #include <cstring>
 #include <fcntl.h>
+#include <mutex>
 #include <pthread.h>
 #include <stdint.h>
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
+#ifndef __APPLE__
+#include <sys/syscall.h>
+#endif
 
 namespace {
 
@@ -16,8 +20,9 @@ int logFd = -2;
 pthread_mutex_t logLock = PTHREAD_MUTEX_INITIALIZER;
 std::uint64_t nextSequence = 0;
 
-void EnsureOpen() {
-    if (logFd != -2) return;
+std::once_flag openOnce;
+
+void OpenLog() {
     const char* path = std::getenv("ANYPS5_HLE_LOG");
     if (path == nullptr || *path == '\0') {
         logFd = -1;
@@ -30,9 +35,18 @@ void EnsureOpen() {
     }
 }
 
+// call_once publishes logFd to every caller; two threads can no longer both open with O_TRUNC.
+void EnsureOpen() {
+    std::call_once(openOnce, OpenLog);
+}
+
 std::uint64_t CurrentThread() {
     std::uint64_t thread = 0;
+#ifdef __APPLE__
     pthread_threadid_np(nullptr, &thread);
+#else
+    thread = static_cast<std::uint64_t>(::syscall(SYS_gettid));
+#endif
     return thread;
 }
 

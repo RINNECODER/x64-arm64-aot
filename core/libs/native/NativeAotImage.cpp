@@ -5,6 +5,7 @@
 #include <cstring>
 #include <fcntl.h>
 #include <limits>
+#include <cerrno>
 #include <cstdio>
 #include <stdexcept>
 #include <string>
@@ -49,6 +50,24 @@ void CheckFunction(const NativeAotImage& image, const void* function) {
     throw std::invalid_argument("native AOT allocator callback is not registered native code");
 }
 
+// Maps anonymous memory at exactly `hint`, or fails without touching anything already there.
+// MAP_FIXED would silently replace an existing mapping (on macOS as on Linux), so the range is
+// requested as a hint (MAP_FIXED_NOREPLACE where the kernel has it) and the result is verified.
+void* MapFree(void* hint, std::size_t bytes) {
+    int flags = MAP_PRIVATE | MAP_ANON;
+#ifdef MAP_FIXED_NOREPLACE
+    flags |= MAP_FIXED_NOREPLACE;
+#endif
+    void* base = ::mmap(hint, bytes, PROT_READ | PROT_WRITE, flags, -1, 0);
+    if (base == MAP_FAILED) return base;
+    if (base != hint) {
+        ::munmap(base, bytes);
+        errno = EEXIST;
+        return MAP_FAILED;
+    }
+    return base;
+}
+
 }
 
 namespace {
@@ -86,14 +105,13 @@ extern "C" void NativeAotMapImage_nid_no_patch(const NativeAotSegment* segments,
         const std::uint64_t aligned = segment.vaddr & ~(page - 1);
         const std::uint64_t delta = segment.vaddr - aligned;
         Require(delta <= segment.offset, "native AOT segment alignment exceeds its file offset");
-        void* base = ::mmap(reinterpret_cast<void*>(static_cast<std::uintptr_t>(aligned)),
-                            static_cast<std::size_t>(segment.memsz + delta), PROT_READ | PROT_WRITE,
-                            MAP_PRIVATE | MAP_ANON | MAP_FIXED, -1, 0);
+        void* base = MapFree(reinterpret_cast<void*>(static_cast<std::uintptr_t>(aligned)),
+                             static_cast<std::size_t>(segment.memsz + delta));
         std::fprintf(stderr, "[aot] map %#llx + %#llx -> %p flags %llu\n", (unsigned long long)segment.vaddr, (unsigned long long)segment.memsz, base, (unsigned long long)segment.flags);
         if (base == MAP_FAILED) {
             // Some guest pages collide with host reservations (the SCE relocation blob does);
             // report and skip instead of failing the whole image.
-            std::fprintf(stderr, "[aot] skipped segment %#llx (map failed)\n", (unsigned long long)segment.vaddr);
+            std::fprintf(stderr, "[aot] skipped segment %#llx (range already mapped)\n", (unsigned long long)segment.vaddr);
             continue;
         }
         std::size_t copied = 0;

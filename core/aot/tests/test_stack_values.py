@@ -1,4 +1,5 @@
 import ctypes
+import subprocess
 import unittest
 
 import test_effects
@@ -69,3 +70,35 @@ class StackValueTests(unittest.TestCase):
 
 if __name__ == '__main__':
     unittest.main()
+
+
+class MovbeStoreTests(unittest.TestCase):
+    setUp = test_effects.CallEffectsTests.setUp
+    compile = test_effects.CallEffectsTests.compile
+    fixture = test_effects.CallEffectsTests.fixture
+
+    null_argument = StackValueTests.null_argument
+    compile_ir = test_effects.CallEffectsTests.compile_ir
+
+    def test_movbe_store_invalidates_a_stale_null_stack_value(self):
+        # [rsp] held a known 0; movbe overwrites it with a nonzero value, so it is no longer a valid null.
+        initialize = 'mov QWORD PTR [rsp], 0\nmov rax, 0x2000\nmovbe [rsp], rax'
+        with self.assertRaisesRegex(Rejected, 'stack pointer argument'):
+            self.compile_ir(*self.null_argument(initialize))
+
+    def test_movbe_store_is_a_recorded_memory_write(self):
+        body = ('sub rsp, 24\nmov rax, 0x1122334455667788\nmov [rsp+8], rax\n'
+                'mov rcx, 0x0102030405060708\nmovbe [rsp+8], rcx\nmov rdx, [rsp+8]\nmov rax, rdx\nadd rsp, 24\nret')
+        function, _, _ = self.compile(*self.fixture([('test_entry', body, [], 'u64')]))
+        # The x86 reference: the same sequence assembled for x86_64 and run under the translator.
+        source = self.directory / 'reference.S'
+        source.write_text('.intel_syntax noprefix\n.text\n.globl _run\n_run:\n' + body + '\n')
+        runner = self.directory / 'reference.c'
+        runner.write_text('#include <stdint.h>\n#include <stdio.h>\nextern uint64_t run(void);\n'
+                          'int main(void){printf("%llu\\n",(unsigned long long)run());return 0;}\n')
+        binary = self.directory / 'reference.x86'
+        subprocess.run(['xcrun', 'clang', '-arch', 'x86_64', str(source), str(runner), '-o', str(binary)],
+                       check=True, capture_output=True)
+        expected = int(subprocess.run([str(binary)], check=True, capture_output=True, text=True).stdout)
+        self.assertEqual(expected, 0x0807060504030201)
+        self.assertEqual(function(), expected)

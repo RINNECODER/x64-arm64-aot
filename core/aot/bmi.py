@@ -72,7 +72,7 @@ def analyze(function, ins, state):
             function.define(ins, state, args[0])
         elif args[1].type == X86_OP_REG and args[0].type == X86_OP_MEM:
             function.read_operand(ins, state, args[1])
-            function.read_operand(ins, state, args[0])
+            function.define(ins, state, args[0])
         else:
             function.fail(ins, 'unsupported movbe operands')
         return True
@@ -212,12 +212,8 @@ def lower(function, ins):
         return True
     if op == 'movbe':
         width = args[0].size * 8
-        if args[0].type == X86_OP_REG:
-            value = function.read(ins, args[1], width)
-            function.write(ins, args[0], function.emit(f'call i{width} @llvm.bswap.i{width}(i{width} {value})'))
-        else:
-            value = function.read(ins, args[1], width)
-            function.write(ins, args[0], function.emit(f'call i{width} @llvm.bswap.i{width}(i{width} {value})'))
+        value = function.read(ins, args[1], width)
+        function.write(ins, args[0], function.emit(f'call i{width} @llvm.bswap.i{width}(i{width} {value})'))
         return True
     if op in ('rol', 'ror'):
         width = args[0].size * 8
