@@ -187,6 +187,33 @@ def recover_pointer_slot_calls(image, native):
     return added
 
 
+def promote_import_thunks(image, native, frontier):
+    """Move a frontier PLT thunk (a six-byte `jmp *[slot]` whose slot is an import) into native.
+
+    Such a thunk is trivially lowerable: the compiler resolves the slot to its import and emits a
+    tail call, so it is not an unimplemented function. The bounded walk can still leave one in the
+    frontier (enqueued, not popped within the budget), and the `stub` mark then turns a resolvable
+    import call into a reporting trap. Returns the promoted addresses.
+    """
+    promoted = set()
+    for address in list(frontier):
+        spec = image.functions.get(address)
+        if spec is None or spec['size'] != 6:
+            continue
+        try:
+            raw = image.read(address, 6)
+        except Rejected:
+            continue
+        if raw[:2] != b'\xff\x25':
+            continue
+        slot = address + 6 + int.from_bytes(raw[2:], 'little', signed=True)
+        if slot in image.import_slots:
+            promoted.add(address)
+    native |= promoted
+    frontier -= promoted
+    return promoted
+
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('--elf', required=True)
@@ -266,6 +293,7 @@ def main():
         order += extra
         frontier |= extra_frontier
         native |= set(extra)
+    promote_import_thunks(image, native, frontier)
     keep = native | frontier
     contracts['functions'] = [spec for spec in image.functions.values() if spec['address'] in keep]
     for spec in contracts['functions']:
