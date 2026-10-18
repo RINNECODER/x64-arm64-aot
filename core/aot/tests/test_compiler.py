@@ -295,6 +295,41 @@ int main(void) { return original() == merged() ? 0 : 1; }
         _, count = merge_constant_stores('\n'.join(lines))
         self.assertEqual(count, 0)
 
+    def test_unaligned_constant_store_keeps_its_true_alignment(self):
+        # Contract: a scalar guest store may only claim an alignment the compiler has proven.
+        # Regression: `mov dword ptr [rip+disp], 1` to 0x2002 (2-aligned) reached the IR as
+        # `store atomic i32 1, ptr ..., release, align 4`; LLVM lowers that false alignment to
+        # `stlr`, which faults with SIGBUS on a misaligned address and stopped the native boot on a
+        # packed guest field. No existing test stores to a constant address that is not naturally
+        # aligned: the atomics harness uses `[rdi]` (alignment unknown, natural assumed) and the
+        # guest lab's unaligned cases go through the inline-asm concurrent path (plain `str`).
+        code = bytes.fromhex('c705f80f000001000000'   # mov dword ptr [rip+0xff8], 1  -> 0x2002
+                             '8b05f20f0000'           # mov eax, dword ptr [rip+0xff2] -> 0x2002
+                             'c3')                    # ret
+        raw, contracts = fixture(code)
+        path = self.directory / 'input.elf'
+        path.write_bytes(raw)
+        ir, _ = compile_image(Image(path, contracts))
+        self.assertIn('fence release', ir)
+        self.assertIn('fence acquire', ir)
+        store = next(line for line in ir.splitlines() if line.lstrip().startswith('store') and 'i32' in line)
+        self.assertIn('align 2', store)
+        self.assertNotIn('atomic', store)
+
+    def test_aligned_constant_store_stays_a_release_atomic(self):
+        # The other half of the same contract: a store the compiler can prove naturally aligned
+        # keeps the release atomic form (which lowers to `stlr`).
+        code = bytes.fromhex('c705f60f000001000000'   # mov dword ptr [rip+0xff6], 1  -> 0x2000
+                             '31c0'                   # xor eax, eax
+                             'c3')
+        raw, contracts = fixture(code)
+        path = self.directory / 'input.elf'
+        path.write_bytes(raw)
+        ir, _ = compile_image(Image(path, contracts))
+        store = next(line for line in ir.splitlines() if line.lstrip().startswith('store') and 'i32' in line)
+        self.assertIn('store atomic i32 1', store)
+        self.assertIn('release, align 4', store)
+
     def test_object_toolchain(self):
         raw, contracts = fixture(bytes.fromhex('4889f84801f0c3'), ['i64', 'i64'])
         path = self.directory / 'input.elf'

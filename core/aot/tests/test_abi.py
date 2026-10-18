@@ -1,8 +1,11 @@
+import json
 import subprocess
+import sys
 import unittest
 
+import test_compiler
 from abi import (ABIError, bits, llvm_type, locations, parameter_type,
-                 result_type, return_register, signature)
+                 result_type, return_register, signature, validate_import_annotations)
 
 
 class ABITests(unittest.TestCase):
@@ -81,6 +84,62 @@ class ABITests(unittest.TestCase):
             attribute = 'zeroext' if kind.startswith('u') else 'signext'
             self.assertRegex(declaration, rf'define .*\b{attribute} {llvm_type(kind)} @{name}\(')
             self.assertRegex(declaration, rf'@{name}\({llvm_type(kind)} [^)]*\b{attribute}\b')
+
+    def test_stale_contracts_that_stub_a_verified_import_are_rejected(self):
+        # The heap initialiser's mspace imports were verified in the ABI but a contracts file
+        # generated before that kept them as return-0 stubs, so the guest stored through a null
+        # pointer. The stale pair must be rejected instead of lowering the import to a null return.
+        contracts = {'imports': {'ljkqMcC4-mk#t#s': {'name': 'ljkqMcC4_mk_t_s', 'result': 'i64',
+                                                      'parameters': [], 'stub': True}}}
+        annotations = {'imports': {'ljkqMcC4-mk#t#s': {'status': 'verified', 'hle_name': 'sceLibcMspaceAlignedAlloc',
+                                                        'result': 'ptr', 'parameters': ['ptr', 'u64', 'u64']}}}
+        with self.assertRaisesRegex(ABIError, 'verified as sceLibcMspaceAlignedAlloc but the contracts stub it'):
+            validate_import_annotations(contracts, annotations)
+
+    def test_contracts_matching_the_verified_annotations_are_accepted(self):
+        contracts = {'imports': {'nid': {'name': 'sceLibcMspaceAlignedAlloc', 'result': 'ptr',
+                                         'parameters': ['ptr', 'u64', 'u64']}}}
+        annotations = {'imports': {'nid': {'status': 'verified', 'hle_name': 'sceLibcMspaceAlignedAlloc',
+                                           'result': 'ptr', 'parameters': ['ptr', 'u64', 'u64']}}}
+        validate_import_annotations(contracts, annotations)
+
+    def test_a_typed_import_whose_signature_drifted_is_rejected(self):
+        contracts = {'imports': {'nid': {'name': 'provider', 'result': 'i64', 'parameters': []}}}
+        annotations = {'imports': {'nid': {'status': 'verified', 'hle_name': 'provider',
+                                           'result': 'ptr', 'parameters': ['ptr']}}}
+        with self.assertRaisesRegex(ABIError, 'ABI disagrees with the contracts'):
+            validate_import_annotations(contracts, annotations)
+
+    def test_an_unverified_import_that_is_typed_is_rejected(self):
+        contracts = {'imports': {'nid': {'name': 'provider', 'result': 'i64', 'parameters': []}}}
+        with self.assertRaisesRegex(ABIError, 'not verified in the ABI but the contracts type it'):
+            validate_import_annotations(contracts, {'imports': {}})
+
+    def test_title_image_rejects_a_stale_contracts_abi_pair(self):
+        # At the real consumer boundary: the bounded title build must refuse a contracts file that
+        # stubs an import the ABI verifies, instead of lowering it to a null return.
+        import tempfile
+        from pathlib import Path
+        raw, contracts = test_compiler.fixture(bytes.fromhex('ff15fa0f0000c3'), result='void',
+                                              imports={'ljkqMcC4-mk#t#s': None})
+        contracts['imports'] = {'ljkqMcC4-mk#t#s': {'name': 'ljkqMcC4_mk_t_s', 'result': 'i64',
+                                                    'parameters': [], 'stub': True}}
+        annotations = {'imports': {'ljkqMcC4-mk#t#s': {'status': 'verified',
+                                                       'hle_name': 'sceLibcMspaceAlignedAlloc',
+                                                       'result': 'ptr', 'parameters': ['ptr', 'u64', 'u64']}}}
+        root = Path(__file__).resolve().parents[3]
+        with tempfile.TemporaryDirectory(prefix='anyps5-stale-abi-') as folder:
+            folder = Path(folder)
+            (folder / 'in.elf').write_bytes(raw)
+            (folder / 'contracts.json').write_text(json.dumps(contracts))
+            (folder / 'abi.json').write_text(json.dumps(annotations))
+            result = subprocess.run([sys.executable, str(root / 'tools/native/title_image.py'),
+                                     '--elf', str(folder / 'in.elf'), '--contracts', str(folder / 'contracts.json'),
+                                     '--abi', str(folder / 'abi.json'), '--output', str(folder / 'out.ll')],
+                                    capture_output=True, text=True)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn('verified as sceLibcMspaceAlignedAlloc but the contracts stub it',
+                      result.stdout + result.stderr)
 
 
 if __name__ == '__main__':

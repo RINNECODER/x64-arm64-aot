@@ -221,6 +221,22 @@ class AtomicsTests(unittest.TestCase):
         self.assertEqual(atomics.ordered_load(128, '%p'), 'load i128, ptr %p, align 1')
         self.assertEqual(atomics.ordered_store(128, '7', '%p'), 'store i128 7, ptr %p, align 1')
 
+    def test_under_aligned_accesses_drop_the_release_atomic(self):
+        # `ordered_store`/`ordered_load` may only claim an alignment the caller proved. A release
+        # atomic whose address is not naturally aligned lowers to `stlr`, which faults on a
+        # misaligned address, so an under-aligned access keeps its true alignment and takes the
+        # fence form instead. An unknown alignment keeps the natural form (the pre-existing policy).
+        self.assertEqual(atomics.ordered_store(32, '7', '%p', 2),
+                         '  fence release\n  store i32 7, ptr %p, align 2')
+        self.assertEqual(atomics.ordered_load(32, '%p', 2),
+                         'load i32, ptr %p, align 2\n  fence acquire')
+        self.assertEqual(atomics.ordered_store(32, '7', '%p', 4),
+                         'store atomic i32 7, ptr %p release, align 4')
+        self.assertEqual(atomics.ordered_load(64, '%p', 8),
+                         'load atomic i64, ptr %p acquire, align 8')
+        self.assertEqual(atomics.ordered_store(32, '7', '%p'),
+                         'store atomic i32 7, ptr %p release, align 4')
+
     def test_guest_accesses_are_ordered(self):
         # A plain `mov rax, [rdi]` / `mov [rdi], rcx` must reach the IR as acquire/release.
         ins, _ = self.instruction('mov rax, QWORD PTR [rdi]')

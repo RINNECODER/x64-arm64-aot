@@ -112,8 +112,56 @@ def page_region(address, size, page=0x1000):
     return start, end - start
 
 
-def build_synthetic(functions, referenced, uniform=False, dispatch=False, guest_base=0):
-    """functions: [(address, code)]; referenced: {address: size}."""
+def real_closure(title, sizes, root, profile, limit):
+    """The root plus the transitive closure of its direct calls/jmps and fall-through tail calls,
+    taken from the real module profile.
+
+    `sizes` must be the profile's function table (a superset of the FDE starts): a tail call can
+    land on an interior entry that is not an FDE start, and that is exactly the case the synthetic
+    closure cannot resolve. Indirect target sets are deliberately *not* followed here; they pull in
+    the whole title. `indirect_stubs` declares them instead."""
+    ordered, seen = [root], {root}
+    pending = [root]
+    while pending and len(ordered) < limit:
+        address = pending.pop(0)
+        size = sizes.get(address) or 0
+        code = title.code(address, size) if size else None
+        targets = set(direct_targets(code, address)) if code else set()
+        if size:
+            targets.add(address + size)
+        for target in sorted(targets):
+            if target in sizes and target not in seen:
+                seen.add(target)
+                ordered.append(target)
+                pending.append(target)
+    return ordered
+
+
+def indirect_stubs(profile, functions):
+    """The declared indirect target sets of `functions`, as addresses that need a stub declaration."""
+    stubs = set()
+    for address in functions:
+        for _site, index, _kind in profile.indirect_records(address):
+            stubs.update(profile.targets_of(index))
+    return {target for target in stubs if profile.has(target)}
+
+
+def build_synthetic(functions, referenced, uniform=False, dispatch=False, guest_base=0, guest_data=False,
+                    external=(), specs=None, target_sets=None):
+    """functions: [(address, code)]; referenced: {address: size}.
+
+    With guest_data the compiler does not emit the data segments; it references them at their guest
+    vaddrs and the runtime maps the image's segments. A referenced region that overlaps a mapped
+    function is still skipped: the compiler treats a reference into the function's own code page as
+    data, and mapping a zero-filled page over it drives the code into a wild jump.
+
+    `external` names functions whose bodies the harness supplies natively (recorded-call replay
+    stubs): the image declares them, so a direct call resolves to a uniform call, but no body is
+    emitted.
+
+    `specs` are the real module-profile contracts (indirect-call annotations and signatures);
+    `target_sets` is the shared indirect target-set pool those annotations index. With them an
+    indirect call resolves to a declared uniform target set instead of rejecting."""
     regions = {}
     function_ranges = [(a, a + len(c)) for a, c in functions]
     for target, size in referenced.items():
@@ -132,7 +180,11 @@ def build_synthetic(functions, referenced, uniform=False, dispatch=False, guest_
     regions = dict(merged)
 
     header_size = 64
-    code_offset = 0x1000
+    # The program-header table is written at offset 64; the code must start after it, or a closure
+    # with more than ~72 functions/regions writes its headers over the first function's bytes (and
+    # past the buffer once the table is longer than the whole image).
+    phnum = 3 + len(functions) + len(regions)
+    code_offset = max(0x1000, (header_size + phnum * 56 + 0xfff) & ~0xfff)
     code_size = sum(len(code) for _, code in functions)
     data_base = code_offset + code_size
     dynamic_offset = data_base + sum(regions.values())
@@ -143,7 +195,6 @@ def build_synthetic(functions, referenced, uniform=False, dispatch=False, guest_
     names = b"\0.dynsym\0.dynstr\0.dynamic\0.shstrtab\0"
     total = section_offset + 0x400
     table_size = total - dynamic_offset
-    phnum = 3 + len(functions) + len(regions)
     image = bytearray(total)
     struct.pack_into("<16sHHIQQQIHHHHHH", image, 0, b"\x7fELF\x02\x01\x01" + bytes(9),
                      3, 62, 1, functions[0][0], header_size, section_offset, 0, 64, 56, phnum, 64, 5, 4)
@@ -176,32 +227,61 @@ def build_synthetic(functions, referenced, uniform=False, dispatch=False, guest_
         struct.pack_into("<IIQQQQIIQQ", image, section_offset + offset * 64, *values)
     data = [{"address": start, "size": length} for start, length in sorted(regions.items())]
     data.append({"address": dynamic_offset, "size": table_size})
+    declared = []
+    for address, code in functions:
+        entry = dict((specs or {}).get(address) or {})
+        entry.update({"name": (f"sub_{address:x}" if uniform else f"func_{address:x}"), "address": address,
+                      "size": len(code), **({"uniform": True, "result": "void"} if uniform else {"result": "i64"}),
+                      "parameters": entry.get("parameters", [])})
+        if address in external:
+            entry["external"] = True
+        declared.append(entry)
     contracts = {
         "schema": 1,
         "sha256": hashlib.sha256(image).hexdigest(),
-        "functions": [{"name": (f"sub_{address:x}" if uniform else f"func_{address:x}"), "address": address, "size": len(code),
-                       **({"uniform": True, "result": "void"} if uniform else {"result": "i64"}), "parameters": []}
-                      for address, code in functions],
+        "functions": declared,
         "imports": {},
         "data": data,
         "pointer_relocations": [],
     }
+    if target_sets:
+        contracts["target_sets"] = target_sets
     if dispatch:
         contracts["dispatch"] = True
     if guest_base:
         contracts["guest_base"] = guest_base
+    if guest_data:
+        contracts["guest_data"] = True
     return bytes(image), contracts
 
 
-def compile_one(title, sizes, address, limit, work_dir=None, uniform=False, dispatch=False):
-    functions = [address] if dispatch else closure(title, sizes, address, limit)
+def build_guest_contracts(raw, codes, uniform=False, guest_base=0):
+    """Placeholder kept for callers that build contracts from the real image; the difftest uses
+    build_synthetic(..., guest_data=True) so the synthetic image stays the single input."""
+    raise NotImplementedError
+
+
+def compile_one(title, sizes, address, limit, work_dir=None, uniform=False, dispatch=False,
+                guest_data=False, guest_base=0, external=(), functions=None, profile=None):
+    specs = target_sets = None
+    if profile is not None:
+        if functions is None:
+            functions = real_closure(title, sizes, address, profile, limit)
+        stubs = indirect_stubs(profile, functions) - set(functions)
+        functions = list(functions) + sorted(stubs)
+        specs = {item: profile.spec(item, f"sub_{item:x}" if uniform else f"func_{item:x}", stub=item in stubs)
+                 for item in functions if profile.has(item)}
+        target_sets = profile.target_sets
+    if functions is None:
+        functions = [address] if dispatch else closure(title, sizes, address, limit)
     codes = [(a, title.code(a, sizes[a])) for a in functions]
     codes = [(a, c) for a, c in codes if c]
     referenced = {}
     for a, c in codes:
         for target, size in references(c, a).items():
             referenced[target] = max(referenced.get(target, 1), size)
-    image, contracts = build_synthetic(codes, referenced, uniform, dispatch)
+    image, contracts = build_synthetic(codes, referenced, uniform, dispatch, guest_base, guest_data, external,
+                                       specs, target_sets)
     with tempfile.TemporaryDirectory(prefix="anyps5-difftest-") as directory:
         path = Path(directory) / "input.elf"
         path.write_bytes(image)
@@ -217,6 +297,78 @@ def compile_one(title, sizes, address, limit, work_dir=None, uniform=False, disp
         image_path = str(saved)
     return {"status": "compiled", "closure": len(codes), "references": len(referenced),
             "image": image_path, "ir": ir, "ir_lines": ir.count("\n"), "functions": report["functions"]}
+
+
+def reference_regions(title, sizes, functions):
+    """The data regions a function set references, page-expanded and merged, as contract data specs.
+
+    With the real eboot as the image the compiler reads each region's real bytes into a global, so
+    a title data reference resolves without mapping the whole title image."""
+    referenced = {}
+    for address in functions:
+        code = title.code(address, sizes.get(address) or 0)
+        if code is None:
+            continue
+        for target, size in references(code, address).items():
+            referenced[target] = max(referenced.get(target, 1), size)
+    regions = {}
+    for target, size in referenced.items():
+        start, length = page_region(target, size)
+        regions[start] = max(regions.get(start, 0), length)
+    merged = []
+    for start, length in sorted(regions.items()):
+        if merged and start <= merged[-1][0] + merged[-1][1]:
+            previous_start, previous_length = merged[-1]
+            merged[-1] = (previous_start, max(previous_length, start + length - previous_start))
+        else:
+            merged.append((start, length))
+    return [{"address": start, "size": length} for start, length in merged]
+
+
+def real_contracts(title, profile, root, limit, sha, base, entry):
+    """Contracts for the real module image: the root's direct closure as uniform bodies, the ELF
+    entry and the DT_INIT/DT_FINI lifecycle functions as stubs (the compiler only requires their
+    signatures to exist), and the real module profile's remaining metadata.
+
+    With `guest_data` + `dispatch` the compiler references title data at `base + vaddr` and lowers
+    an indirect call the analysis cannot resolve to `NativeAotDispatch(value)`, so a target outside
+    the closure no longer rejects the function. `imports` and `pointer_relocations` are dropped:
+    the harness applies the relocations into the mapped image itself, and it has no HLE symbols to
+    bind the imports to."""
+    closure = real_closure(title, profile.sizes, root, profile, limit)
+    keep = list(closure)
+    init, fini = profile.lifecycle
+    for extra in (entry, init, fini):
+        if extra is not None and profile.has(extra) and extra not in keep:
+            keep.append(extra)
+    lifecycle = {init, fini} - {None}
+    specs = []
+    for address in keep:
+        if address in lifecycle or address == entry:
+            specs.append({"name": f"entry_{address:x}", "address": address, "size": profile.sizes[address],
+                          "result": "void", "parameters": [], "stub": True})
+        else:
+            specs.append(profile.spec(address, f"sub_{address:x}"))
+    contracts = {key: value for key, value in profile.raw.items()
+                 if key not in ("sizes", "indirect", "functions", "pointer_relocations", "lifecycle")}
+    contracts.update({"schema": 1, "sha256": sha, "functions": specs,
+                      "imports": {key: dict(value, stub=True)
+                                  for key, value in (profile.raw.get("imports") or {}).items()},
+                      "pointer_relocations": [list(pair) for pair in profile.relocations],
+                      "data": [], "guest_data": True,
+                      "guest_base": base, "allow_unimplemented": True, "dispatch": True,
+                      "lifecycle": {"owner": "entry", "init": init, "fini": fini}})
+    return closure, contracts
+
+
+def compile_real(elf_path, contracts):
+    """Compile a contract set against the real eboot instead of a synthetic image."""
+    try:
+        ir, report = compile_image(Image(elf_path, contracts))
+    except (Rejected, KeyError, ValueError) as error:
+        return {"status": "rejected", "reason": str(error)[:400]}
+    return {"status": "compiled", "ir": ir, "ir_lines": ir.count("\n"), "functions": report["functions"],
+            "unimplemented": report.get("unimplemented_functions")}
 
 
 def main():

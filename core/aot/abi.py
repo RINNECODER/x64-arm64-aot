@@ -128,3 +128,32 @@ def signature(contract):
         require(contract.get('guest_return_register') == return_register(result),
                 'nonstandard guest ABI requires explicit verified return register')
     return result, parameters
+
+
+def validate_import_annotations(contracts, annotations):
+    """Reject a contracts image that disagrees with the ABI annotations it was generated from.
+
+    A contracts file that predates an import's ABI verification keeps that import as a return-0
+    stub; the guest then dereferences the null result (the title heap initialiser's mspace path
+    did exactly that). Every import the ABI has verified must be typed in the contracts, and every
+    import the contracts stub must be unverified in the ABI, so a stale pair fails loudly instead
+    of lowering a verified import to a null return.
+    """
+    require(isinstance(contracts, dict) and isinstance(contracts.get('imports'), dict),
+            'contracts must declare an imports map')
+    records = annotations.get('imports') if isinstance(annotations, dict) else None
+    require(isinstance(records, dict), 'ABI annotations must declare an imports map')
+    for nid, contract in contracts['imports'].items():
+        require(isinstance(contract, dict), f'import {nid} contract must be an object')
+        record = records.get(nid) or {}
+        if record.get('status') == 'verified':
+            require(not contract.get('stub'),
+                    f'import {nid} is verified as {record.get("hle_name") or nid} but the contracts stub it; '
+                    'regenerate the contracts from the current ABI')
+            require(contract.get('result') == record.get('result')
+                    and list(contract.get('parameters') or []) == list(record.get('parameters') or []),
+                    f'import {nid} ABI disagrees with the contracts; regenerate the contracts from the current ABI')
+        else:
+            require(contract.get('stub'),
+                    f'import {nid} is not verified in the ABI but the contracts type it; '
+                    'regenerate the contracts from the current ABI')

@@ -78,6 +78,17 @@ def require(condition, message):
         raise Rejected(message)
 
 
+def alignment_of(address, limit=1 << 32):
+    """The largest power of two dividing a known address, capped at `limit`.
+
+    Used to prove the alignment of a scalar access before the IR claims one; see
+    `Function.memory_alignment`.
+    """
+    if address == 0:
+        return limit
+    return min(limit, address & -address)
+
+
 def signature(contract):
     try:
         return abi.signature(contract)
@@ -1468,6 +1479,34 @@ class Function:
         address = self.emit(f'getelementptr i8, ptr {pointer}, i64 {offset}') if offset != '0' else pointer
         return checked_stack.guard(self, ins, operand, address)
 
+    def memory_alignment(self, ins, operand):
+        """The alignment proven for a scalar memory operand, or None when it cannot be proven.
+
+        `atomics.ordered_load`/`ordered_store` claim this alignment in the IR, and a release or
+        acquire atomic whose address is not naturally aligned lowers to `stlr`/`ldar`, which fault
+        on a misaligned address (a packed guest field is stored at one). A constant address
+        (RIP-relative or an image pointer) and a frame-relative address are inspected; an address
+        the compiler cannot place keeps the natural form, the pre-existing policy.
+        """
+        if operand.type != X86_OP_MEM:
+            return None
+        mem = operand.mem
+        state = self.states[ins.address]
+        if mem.segment or mem.index:
+            return None
+        base = ins.reg_name(mem.base)
+        if base == 'rip':
+            return alignment_of(ins.address + ins.size + mem.disp)
+        if base in ('rsp', 'rbp') and state[base] is not None:
+            return alignment_of(self.depth + state[base] + mem.disp, 16)
+        if base in state['pointers']:
+            kind, argument, displacement = state['pointers'][base]
+            if kind == 'image':
+                return alignment_of(displacement + mem.disp)
+            if kind == 'frame':
+                return alignment_of(self.depth + displacement + mem.disp, 16)
+        return None
+
     def read(self, ins, operand, bits=None):
         bits = operand.size * 8 if bits is None else bits
         if operand.type == X86_OP_REG:
@@ -1475,7 +1514,7 @@ class Function:
             return self.load(name, min(width, bits), shift)
         if operand.type == X86_OP_IMM:
             return str(operand.imm & ((1 << bits) - 1))
-        value = self.emit(atomics.ordered_load(bits, self.address(ins, operand)))
+        value = self.emit(atomics.ordered_load(bits, self.address(ins, operand), self.memory_alignment(ins, operand)))
         return checked_pointers.emit(self, ins, operand, value)
 
     def write(self, ins, operand, value):
@@ -1484,7 +1523,26 @@ class Function:
             self.store(name, value, bits, shift)
         else:
             pointer = frame_exclusion.guard(self, ins, operand, self.address(ins, operand))
-            self.lines.append(atomics.ordered_store(operand.size * 8, value, pointer))
+            self.lines.append(atomics.ordered_store(operand.size * 8, value, pointer, self.memory_alignment(ins, operand)))
+
+    def guest_stack_flags(self, ins, args, state, right):
+        """(left, right, value) from the guest rsp for a flag-setting stack adjustment, else None.
+
+        The frame pointer stands in for the guest stack pointer, but a host address has different
+        low bits, so PF (and AF) from `add/sub/cmp rsp, imm` would be wrong. The analysis tracks the
+        guest rsp as an offset from its entry value, so the guest operand is `rsp_guest + offset`.
+        """
+        if self.rsp_guest is None or state['rsp'] is None:
+            return None
+        if args[0].type != X86_OP_REG or args[0].size != 8 or self.reg(ins, args[0])[0] != 'rsp':
+            return None
+        if args[1].type != X86_OP_IMM or ins.mnemonic not in ('add', 'sub', 'cmp'):
+            return None
+        guest = self.emit(f'load i64, ptr {self.rsp_guest}')
+        left = self.emit(f'add i64 {guest}, {state["rsp"]}')
+        instruction = 'sub' if ins.mnemonic == 'cmp' else ins.mnemonic
+        value = self.emit(f'{instruction} i64 {left}, {right}')
+        return left, right, value
 
     def flags(self, operation, bits, left, right, value):
         zf = self.emit(f'icmp eq i{bits} {value}, 0')
@@ -1566,9 +1624,12 @@ class Function:
             value = self.emit(f'load i128, ptr {gep}, align 16')
             self.lines.append(f'  store i128 {value}, ptr %ymm_hi{index}, align 16')
 
-    def uniform_store_registers(self, block):
+    def uniform_store_registers(self, block, rsp=None):
         for index, reg in enumerate(REGISTERS):
-            value = self.emit(f'load i64, ptr %{reg}, align 8')
+            # The rsp slot carries the guest stack pointer, which the frame pointer only stands in
+            # for locally: publishing the frame address would hand a callee a host address, and its
+            # own `add/sub rsp, imm` flags would then follow that address (see `outgoing_rsp`).
+            value = rsp if reg == 'rsp' and rsp is not None else self.emit(f'load i64, ptr %{reg}, align 8')
             gep = self.uniform_gep(block, 0, index)
             self.lines.append(f'  store i64 {value}, ptr {gep}, align 8')
         for index, reg in enumerate(VECTOR_REGISTERS):
@@ -1633,6 +1694,15 @@ class Function:
         gep = self.uniform_gep(block, 5, 0)
         self.lines.append(f'  store i64 {top}, ptr {gep}, align 8')
 
+    def outgoing_rsp(self, state, shift):
+        """The guest rsp the callee sees: the call site's rsp, less the return-address slot that a
+        `call` pushes and a tail `jmp` does not (`shift` is 8 for a jump). None when the guest rsp is
+        not tracked, which leaves the frame pointer in the slot as before."""
+        if self.rsp_guest is None or state['rsp'] is None:
+            return None
+        base = self.emit(f'load i64, ptr {self.rsp_guest}')
+        return self.emit(f'add i64 {base}, {state["rsp"] + shift - 8}')
+
     def uniform_stack_out(self, block, rsp, shift=0):
         if rsp is None:
             # A runtime-sized frame: the outgoing window is the guest stack at the runtime rsp,
@@ -1672,7 +1742,7 @@ class Function:
         self.lines.append('  call void @llvm.trap()')
         self.lines.append('  unreachable')
         self.lines.append(f'{label}_ok:')
-        self.uniform_store_registers('%rf_out')
+        self.uniform_store_registers('%rf_out', self.outgoing_rsp(state, 8 if jump else 0))
         self.uniform_stack_out('%rf_out', state['rsp'], 8 if jump else 0)
         self.lines.append(f'  call void {native}(ptr %rf_out)')
         self.uniform_load_registers('%rf_out', skip=('rsp',))
@@ -1714,7 +1784,7 @@ class Function:
         return repaired
 
     def uniform_call(self, ins, callee, slot, state, tail, result):
-        self.uniform_store_registers('%rf_out')
+        self.uniform_store_registers('%rf_out', self.outgoing_rsp(state, 8 if tail else 0))
         # A tail jmp leaves the guest return address at [rsp], so the callee's window starts one slot
         # above the caller's rsp; a `call` pushes that return address itself, so its window starts at
         # the rsp the args were pushed to.
@@ -1758,7 +1828,12 @@ class Function:
         for flag in ('zf', 'sf', 'cf', 'of', 'pf'):
             self.lines.append(f'  %{flag} = alloca i1, align 1')
         self.lines.append(f'  %frame = alloca [{self.depth + self.stack_end} x i8], align 16')
+        self.rsp_guest = None
         if self.uniform:
+            # The guest rsp is an x86 stack pointer; the frame below is a host address. An
+            # `add/sub rsp, imm` flag result is defined by the guest value, so the entry copies the
+            # incoming rsp here before the frame pointer replaces it in %rsp.
+            self.lines.append('  %rsp_guest = alloca i64, align 8')
             self.lines.append('  %rf_out = alloca %regfile, align 16')
             self.lines.append('  %x87 = alloca [8 x double], align 16')
             self.lines.append('  %x87_top = alloca i32, align 4')
@@ -1769,6 +1844,9 @@ class Function:
             self.uniform_load_registers('%rf')
             self.uniform_load_state('%rf')
             self.uniform_stack_in('%rf')
+            incoming = self.emit('load i64, ptr %rsp')
+            self.lines.append(f'  store i64 {incoming}, ptr %rsp_guest, align 8')
+            self.rsp_guest = '%rsp_guest'
             self.store('rsp', self.emit(f'ptrtoint ptr {self.frame_pointer(0)} to i64'))
         else:
             self.store('rsp', self.emit(f'ptrtoint ptr {self.frame_pointer(0)} to i64'))
@@ -1862,7 +1940,10 @@ class Function:
                 value = self.emit(f'{instruction} i{bits} {left}, {right}')
                 if op not in ('cmp', 'test'):
                     self.write(ins, args[0], value)
-                self.flags(op, bits, left, right, value)
+                # A stack adjustment's flags follow the guest stack pointer, not the frame pointer
+                # that stands in for it (REPORT22 n11).
+                guest = self.guest_stack_flags(ins, args, state, right)
+                self.flags(op, bits, *(guest or (left, right, value)))
             elif op == 'call' and address in self.dispatch_calls:
                 self.lower_dispatch(ins, state, False, result)
             elif address in self.dispatch_jumps:
@@ -2088,6 +2169,10 @@ def compile_image(image, sink=None, emit_bodies=True, analyze=True):
             if spec.get('stub'):
                 stubs.append((spec, 'declared stub'))
                 continue
+            if spec.get('external'):
+                # A function the image declares but does not contain: the differential harness
+                # supplies its native body (a recorded-call replay stub). Emit a declaration only.
+                continue
             try:
                 functions.append(Function(image, spec))
             except Rejected as error:
@@ -2161,6 +2246,11 @@ def compile_image(image, sink=None, emit_bodies=True, analyze=True):
     if any(f.checked_pointer_loads or f.checked_pointer_arguments or f.checked_pointer_bases for f in functions):
         lines.append(f'declare zeroext i1 @{checked_pointers.SYMBOL}(ptr, i64, i1 zeroext)')
     names = {spec['name'] for spec in image.functions.values()}
+    for spec in image.functions.values():
+        if not spec.get('external'):
+            continue
+        require(abi.uniform(spec), 'external function requires the uniform register-file ABI')
+        lines.append(f'declare void @{spec["name"]}(ptr)')
     for contract in image.imports.values():
         result, parameters = signature(contract)
         require(contract['name'] not in names, 'duplicate native name')

@@ -36,18 +36,33 @@ ATOMIC = set(LOCKED_RMW) | set(LOCKED_STEP) | set(LOCKED_BIT) | CMPXCHG | set(FE
 ATOMIC_WIDTHS = (1, 2, 4, 8)
 
 
-def ordered_load(bits, pointer):
-    """The TSO load of a guest scalar: acquire, so later accesses cannot move before it."""
-    if bits in (8, 16, 32, 64):
-        return f'load atomic i{bits}, ptr {pointer} acquire, align {bits // 8}'
-    return f'load i{bits}, ptr {pointer}, align 1'
+def ordered_load(bits, pointer, align=None):
+    """The TSO load of a guest scalar: acquire, so later accesses cannot move before it.
+
+    `align` is the alignment the caller proved for `pointer`. A release/acquire atomic whose
+    address is not naturally aligned lowers to `stlr`/`ldar`, which fault on a misaligned address,
+    so an under-aligned access keeps its true alignment and orders with a fence instead. An unknown
+    alignment (`None`) keeps the natural form, the compiler's pre-existing policy.
+    """
+    if bits not in (8, 16, 32, 64):
+        return f'load i{bits}, ptr {pointer}, align 1'
+    width = bits // 8
+    if align is None or align >= width:
+        return f'load atomic i{bits}, ptr {pointer} acquire, align {width}'
+    return f'load i{bits}, ptr {pointer}, align {align}\n  fence acquire'
 
 
-def ordered_store(bits, value, pointer):
-    """The TSO store of a guest scalar: release, so earlier accesses cannot move after it."""
-    if bits in (8, 16, 32, 64):
-        return f'store atomic i{bits} {value}, ptr {pointer} release, align {bits // 8}'
-    return f'store i{bits} {value}, ptr {pointer}, align 1'
+def ordered_store(bits, value, pointer, align=None):
+    """The TSO store of a guest scalar: release, so earlier accesses cannot move after it.
+
+    `align` is the alignment the caller proved for `pointer`; see `ordered_load`.
+    """
+    if bits not in (8, 16, 32, 64):
+        return f'store i{bits} {value}, ptr {pointer}, align 1'
+    width = bits // 8
+    if align is None or align >= width:
+        return f'store atomic i{bits} {value}, ptr {pointer} release, align {width}'
+    return f'  fence release\n  store i{bits} {value}, ptr {pointer}, align {align}'
 
 
 def _operands(ins):
