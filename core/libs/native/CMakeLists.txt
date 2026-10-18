@@ -34,7 +34,8 @@ add_shader_recompiler(shader_recompiler_native native_runtime_platform GUARD_SOU
 # --- one static library with the HLE runtime and the Metal graphics driver ---------------------
 add_library(anyps5_native_graphics STATIC)
 
-set(nativeComponents libc libkernel libSceAgc libScePad libSceMouse libSceKeyboard)
+set(nativeComponents libc libkernel libSceAgc libScePad libSceMouse libSceKeyboard libSceFiber
+    libSceFont libSceFontFt)
 set(nativeUnsupportedSources
     "${LIBS_INCLUDE_DIR}/prx/libc/src/ApplicationProcessParameters.cpp"
     "${LIBS_INCLUDE_DIR}/prx/libc/src/Strings.cpp"
@@ -165,6 +166,7 @@ target_link_libraries(anyps5_native_graphics PUBLIC
     native_runtime_platform
     anyps5_native_image
     anyps5_metal_utilities
+    freetype
     "-framework ImageIO"
     "-framework CoreGraphics"
     "-framework Metal"
