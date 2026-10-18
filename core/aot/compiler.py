@@ -481,6 +481,10 @@ class Function:
         self.memory_writes = {}
         self.lines = []
         self.serial = 0
+        # Register-file transfers recorded as (kind, [(line, register)]) so the whole-function
+        # pass at the end of lowering can drop the ones this function does not need.
+        self.groups = []
+        self.uses_x87 = False
         # Block-local SSA for the guest register file: `values` caches the current SSA value of
         # each register inside a block and `dirty` marks the ones whose spill alloca is stale.
         self.values = {}
@@ -1901,12 +1905,13 @@ class Function:
         gep = self.uniform_gep(block, 5, 0)
         stored = self.emit(f'load i64, ptr {gep}, align 8')
         stored = self.emit(f'trunc i64 {stored} to i32')
-        self.lines.append(f'  store i32 {stored}, ptr %x87_top, align 4')
+        entries = [('x87', None, f'  store i32 {stored}, ptr %x87_top, align 4')]
         top = self.emit('load i32, ptr %x87_top, align 4')
         for index in range(8):
             # The register file holds st(0)..st(7); the native stack is a ring indexed by the top.
             value = self.emit(f'load double, ptr {self.uniform_gep(block, 4, index)}, align 8')
-            self.lines.append(f'  store double {value}, ptr {self.x87_slot(top, index)}, align 8')
+            entries.append(('x87', None, f'  store double {value}, ptr {self.x87_slot(top, index)}, align 8'))
+        self.emit_group('state-load', entries)
 
     def x87_slot(self, top, index):
         offset = self.emit(f'add i32 {top}, {index}')
@@ -1934,14 +1939,51 @@ class Function:
         gep = self.uniform_gep(block, 3, 1)
         self.lines.append(f'  store i64 {mask}, ptr {gep}, align 8')
         top = self.emit('load i32, ptr %x87_top, align 4')
+        entries = []
         for index in range(8):
             value = self.emit(f'load double, ptr {self.x87_slot(top, index)}, align 8')
             gep = self.uniform_gep(block, 4, index)
-            self.lines.append(f'  store double {value}, ptr {gep}, align 8')
+            entries.append(('x87', None, f'  store double {value}, ptr {gep}, align 8'))
         top = self.emit(f'load i32, ptr %x87_top, align 4')
         top = self.emit(f'zext i32 {top} to i64')
         gep = self.uniform_gep(block, 5, 0)
-        self.lines.append(f'  store i64 {top}, ptr {gep}, align 8')
+        entries.append(('x87', None, f'  store i64 {top}, ptr {gep}, align 8'))
+        self.emit_group('state-store', entries)
+
+    def emit_group(self, kind, entries):
+        """Append a register-file transfer and remember which line carries which register.
+
+        The load that feeds a store is part of the group: it reads a native alloca, and a native
+        alloca is only written where the compiler writes it, so leaving the load out of the group
+        would not make the register look used -- it is the store that publishes the value.
+        """
+        group = []
+        for register, source, line in entries:
+            if source is not None:
+                group.append((source, None))
+            group.append((len(self.lines), register))
+            self.lines.append(line)
+        self.groups.append((kind, group))
+
+    def prune_regfile_traffic(self):
+        """Drop the x87 rotation for a function that never executes an x87 instruction.
+
+        The uniform ABI imports the x87 stack at the entry and publishes it at every return. A
+        function that never reads or writes an x87 register cannot have changed the stack, so the
+        entry import only copies the incoming values into natives nobody reads, and re-publishing
+        them writes those same values back. Dropping the publish is not just a saving: a function
+        that calls one that *does* use the stack must not overwrite what the callee published.
+        """
+        if not self.uniform or self.uses_x87 or not self.groups:
+            return
+        drop = set()
+        for kind, entries in self.groups:
+            if kind not in ('state-load', 'state-store'):
+                continue
+            for line_index, register in entries:
+                if register == 'x87':
+                    drop.add(line_index)
+        self.lines = [line for index, line in enumerate(self.lines) if index not in drop]
 
     def uniform_copy_state(self, target, source):
         """Publish the callee's flags and definedness mask into `target`.
@@ -2473,6 +2515,7 @@ class Function:
             elif address + ins.size in leaders:
                 self.flush_registers()
                 self.lines.append(f'  br label %b{address + ins.size:x}')
+        self.prune_regfile_traffic()
         self.lines.append('}')
         return '\n'.join(self.lines)
 

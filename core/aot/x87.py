@@ -42,10 +42,12 @@ def analyze(function, ins, state):
 
 
 def _top(function):
+    function.uses_x87 = True
     return function.emit('load i32, ptr %x87_top, align 4')
 
 
 def _slot(function, top, index):
+    function.uses_x87 = True
     offset = function.emit(f'add i32 {top}, {index}')
     offset = function.emit(f'and i32 {offset}, 7')
     return function.emit(f'getelementptr [8 x double], ptr %x87, i32 0, i32 {offset}')

@@ -262,16 +262,17 @@ def build_guest_contracts(raw, codes, uniform=False, guest_base=0):
 
 
 def compile_one(title, sizes, address, limit, work_dir=None, uniform=False, dispatch=False,
-                guest_data=False, guest_base=0, external=(), functions=None, profile=None):
+                guest_data=False, guest_base=0, external=(), functions=None, profile=None,
+                declare_target_sets=True):
     specs = target_sets = None
     if profile is not None:
         if functions is None:
             functions = real_closure(title, sizes, address, profile, limit)
-        stubs = indirect_stubs(profile, functions) - set(functions)
+        stubs = indirect_stubs(profile, functions) - set(functions) if declare_target_sets else set()
         functions = list(functions) + sorted(stubs)
         specs = {item: profile.spec(item, f"sub_{item:x}" if uniform else f"func_{item:x}", stub=item in stubs)
                  for item in functions if profile.has(item)}
-        target_sets = profile.target_sets
+        target_sets = profile.target_sets if declare_target_sets else None
     if functions is None:
         functions = [address] if dispatch else closure(title, sizes, address, limit)
     codes = [(a, title.code(a, sizes[a])) for a in functions]
