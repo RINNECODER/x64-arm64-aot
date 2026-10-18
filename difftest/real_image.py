@@ -96,6 +96,27 @@ def saturate(segments_list, rng, base=BASE, extra=()):
     return out
 
 
+def map_range(libc, start, end):
+    """Map [start, end) (BASE-relative) in this process.
+
+    A small run (a recorded heap page) may already be mapped by the process's own layout, and
+    `MAP_FIXED` would replace it, so each page is checked with `mincore` first; a large run is the
+    image and is always free. `mincore` fails with ENOMEM on an unmapped page.
+    """
+    if end - start > 0x10000:
+        pointer = libc.mmap(ctypes.c_void_p(start), end - start, 3, 0x02 | 0x1000 | 0x10, -1, 0)
+        if pointer in (None, ctypes.c_void_p(-1).value, (1 << 64) - 1):
+            raise RuntimeError(f"cannot map the image at {start:#x}")
+        return
+    vector = ctypes.create_string_buffer(1)
+    for address in range(start, end, PAGE):
+        if libc.mincore(ctypes.c_void_p(address), ctypes.c_size_t(PAGE), vector) == 0:
+            continue
+        pointer = libc.mmap(ctypes.c_void_p(address), PAGE, 3, 0x02 | 0x1000 | 0x10, -1, 0)
+        if pointer in (None, ctypes.c_void_p(-1).value, (1 << 64) - 1):
+            raise RuntimeError(f"cannot map the image at {address:#x}")
+
+
 def map_segments(segments_list, base=BASE):
     """Map the union of the segments at BASE + vaddr and copy the bytes in (child process only).
 
@@ -108,6 +129,7 @@ def map_segments(segments_list, base=BASE):
     libc.mmap.restype = ctypes.c_void_p
     libc.mmap.argtypes = [ctypes.c_void_p, ctypes.c_size_t, ctypes.c_int, ctypes.c_int,
                           ctypes.c_int, ctypes.c_long]
+    libc.mincore.argtypes = [ctypes.c_void_p, ctypes.c_size_t, ctypes.c_char_p]
     pages = set()
     for vaddr, _filesz, memsz, _data, _flags in segments_list:
         start = vaddr & ~(PAGE - 1)
@@ -119,10 +141,7 @@ def map_segments(segments_list, base=BASE):
             run_end = address + PAGE
             continue
         if run_start is not None:
-            pointer = libc.mmap(ctypes.c_void_p(base + run_start), run_end - run_start, 3,
-                                0x02 | 0x1000 | 0x10, -1, 0)
-            if pointer in (None, ctypes.c_void_p(-1).value, (1 << 64) - 1):
-                raise RuntimeError(f"cannot map the image at {base + run_start:#x}")
+            map_range(libc, base + run_start, base + run_end)
         if address is None:
             break
         run_start, run_end = address, address + PAGE

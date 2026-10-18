@@ -34,8 +34,16 @@ add_shader_recompiler(shader_recompiler_native native_runtime_platform GUARD_SOU
 # --- one static library with the HLE runtime and the Metal graphics driver ---------------------
 add_library(anyps5_native_graphics STATIC)
 
+# libc/libkernel plus every HLE component the guest start-up path imports. An import no component
+# defines is left undefined by the archives, so the bounded title image namespaces it to
+# `__aps5_guest_<name>` and the stub generator lowers it to a bare `ret` (or a trampoline to the
+# host C library): the guest call then silently returns zero. The components below are the ones the
+# recorded boot reaches before the title's main loop; each is host-portable (no x86_64 asm).
+# libSceSaveData.native is the variant that carries the transaction-resource entry points.
 set(nativeComponents libc libkernel libSceAgc libScePad libSceMouse libSceKeyboard libSceFiber
-    libSceFont libSceFontFt)
+    libSceFont libSceFontFt
+    libSceSysmodule libSceCommonDialog libSceSystemGesture libSceSaveData.native
+    libSceNpGameIntent libSceSystemService libSceAppContent libSceUserService libSceIme libSceJson2)
 set(nativeUnsupportedSources
     "${LIBS_INCLUDE_DIR}/prx/libc/src/ApplicationProcessParameters.cpp"
     "${LIBS_INCLUDE_DIR}/prx/libc/src/Strings.cpp"

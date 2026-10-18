@@ -90,6 +90,24 @@ __asm__(
 "  movq _g_r11(%rip), %r10\n  movq %r10, 88(%r9)\n"
 "  movq %r12, 96(%r9)\n  movq %r13, 104(%r9)\n  movq %r14, 112(%r9)\n  movq %r15, 120(%r9)\n"
 "  movq _g_frame(%rip), %rbp\n  leaq -40(%rbp), %rsp\n  popq %r15\n  popq %r14\n  popq %r13\n  popq %r12\n  popq %rbx\n  popq %rbp\n  ret\n");
+/* Map [start, end) of the guest address space (BASE-relative). A small run (a recorded heap page)
+   may already be mapped by the process's own layout, and MAP_FIXED would replace it, so each page
+   is checked first; a large run is the image and is always free. Returns nonzero on failure. */
+static int map_range(uint64_t start, uint64_t end) {
+    if (end - start > 0x10000) {
+        if (mmap((void*)(BASE + start), end - start, 3, MAP_PRIVATE | MAP_ANONYMOUS | MAP_FIXED, -1, 0) == MAP_FAILED) return 1;
+        mprotect((void*)(BASE + start), end - start, 7);
+        return 0;
+    }
+    for (uint64_t address = start; address < end; address += 0x1000) {
+        char resident = 0;
+        if (mincore((void*)(BASE + address), 0x1000, &resident) == 0) continue;  /* already mapped */
+        if (mmap((void*)(BASE + address), 0x1000, 3, MAP_PRIVATE | MAP_ANONYMOUS | MAP_FIXED, -1, 0) == MAP_FAILED) return 1;
+        mprotect((void*)(BASE + address), 0x1000, 7);
+    }
+    return 0;
+}
+
 static void fault_handler(int sig, siginfo_t* info, void* context) {
     ucontext_t* uc = (ucontext_t*)context;
     fprintf(stderr, "[runner] fault sig=%d addr=%p rip=%llx\n", sig, info ? info->si_addr : 0,
@@ -126,20 +144,12 @@ int main(int argc, char** argv) {
         for (uint64_t address = page; index < count && address < end; address += 0x1000) {
             if (address < run_end) continue;  /* already mapped by an earlier segment */
             if (address == run_end) { run_end = address + 0x1000; continue; }
-            if (run_end > run_start) {
-                if (mmap((void*)(BASE + run_start), run_end - run_start, 3,
-                         MAP_PRIVATE | MAP_ANONYMOUS | MAP_FIXED, -1, 0) == MAP_FAILED) return 3;
-                mprotect((void*)(BASE + run_start), run_end - run_start, 7);
-            }
+            if (run_end > run_start && map_range(run_start, run_end) != 0) return 3;
             run_start = address;
             run_end = address + 0x1000;
         }
     }
-    if (run_end > run_start) {
-        if (mmap((void*)(BASE + run_start), run_end - run_start, 3,
-                 MAP_PRIVATE | MAP_ANONYMOUS | MAP_FIXED, -1, 0) == MAP_FAILED) return 3;
-        mprotect((void*)(BASE + run_start), run_end - run_start, 7);
-    }
+    if (run_end > run_start && map_range(run_start, run_end) != 0) return 3;
     for (uint32_t index = 0; index < count; ++index)
         if (seg[index].filesz) memcpy((void*)(BASE + seg[index].vaddr), seg[index].data, seg[index].filesz);
     if (mprotect((void*)(BASE + (address & ~0xfffull)), 0x1000, 7) != 0) return 5;
@@ -561,6 +571,11 @@ def run_case_real(address, seed, directory, profile, plant=None, saturate_segmen
     result = harness.compile_real(str(ELF), contracts)
     if result["status"] != "compiled":
         return {"status": "rejected", "reason": result.get("reason", "")[:160], "call_sites": 0}
+    if not any(spec["address"] == address for spec in result.get("functions", ())):
+        # `allow_unimplemented` turns a body the lifter rejected into a reporting trap, so the
+        # image still compiles. That is a rejection of the root, not a comparison that faulted;
+        # counting it as accepted would overstate the accepted column (REPORT25).
+        return {"status": "rejected", "reason": "root body is a reporting stub", "call_sites": 0}
     ir = plant_ir(result["ir"], plant, address)
     os.environ["ANYPS5_AOT_EBOOT"] = str(ELF)
     dylib = build_arm64_real(ir, directory)

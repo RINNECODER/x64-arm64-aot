@@ -36,6 +36,7 @@ import frame_exclusion
 import checked_pointers
 import register_values
 import register_aliases
+import registers
 from dynamic import parse_dynamic, DynamicError
 from calls import validate_indirect_calls, CallError
 from targets import TARGETS, target_spec
@@ -48,6 +49,11 @@ class Rejected(ValueError):
 REGISTERS = ['rax', 'rcx', 'rdx', 'rbx', 'rsp', 'rbp', 'rsi', 'rdi'] + [f'r{i}' for i in range(8, 16)]
 VECTOR_REGISTERS = [f'xmm{i}' for i in range(16)]
 VECTOR_STORAGE = VECTOR_REGISTERS + [f'ymm_hi{i}' for i in range(16)]
+# A stable order for the register spills, so the emitted IR is deterministic.
+SLOT_INDEX = {name: index for index, name in enumerate(REGISTERS + VECTOR_STORAGE)}
+# Block-local SSA for guest registers (REPORT15 section 3, cut 1). A test can turn it off to
+# compare the optimized build against the plain per-instruction load/store build.
+REGISTER_SSA = True
 ARGUMENTS = ['rdi', 'rsi', 'rdx', 'rcx', 'r8', 'r9']
 VOLATILE = {'rax', 'rcx', 'rdx', 'rsi', 'rdi', 'r8', 'r9', 'r10', 'r11'}
 ALIASES = {}
@@ -289,6 +295,8 @@ class Image:
         self.call_contracts = {}
         self.memory_effects = {}
         self.pointer_output_summaries = {}
+        self.register_summaries = {}
+        self.register_pool_masks = {}
         self.provider_requirements = {}
         try:
             immutable_data.configure(self)
@@ -444,6 +452,11 @@ class Image:
 
 
 class Function:
+    # `values is None` means this instance does not use the block-local register SSA (the
+    # single-instruction test probes build a Function by hand and keep the plain load/store form).
+    values = None
+    dirty = frozenset()
+
     def __init__(self, image, contract):
         self.image, self.contract = image, contract
         self.uniform = abi.uniform(contract)
@@ -468,6 +481,10 @@ class Function:
         self.memory_writes = {}
         self.lines = []
         self.serial = 0
+        # Block-local SSA for the guest register file: `values` caches the current SSA value of
+        # each register inside a block and `dirty` marks the ones whose spill alloca is stale.
+        self.values = {}
+        self.dirty = set()
         self.depth = max([128] + [-obj['offset'] for obj in self.contract.get('stack_objects', [])])
         self.dispatch_calls = {}
         self.dispatch_jumps = {}
@@ -1541,12 +1558,46 @@ class Function:
         self.lines.append(f'  {value} = {expression}')
         return value
 
+    def register_width(self, name):
+        return 128 if name in VECTOR_STORAGE else 64
+
     def load(self, name, bits=64, shift=0):
-        width = 128 if name in VECTOR_STORAGE else 64
-        value = self.emit(f'load i{width}, ptr %{name}, align 8')
+        """The current value of a guest register, as an SSA value inside this block."""
+        width = self.register_width(name)
+        value = self.values.get(name) if REGISTER_SSA and self.values is not None else None
+        if value is None:
+            value = self.emit(f'load i{width}, ptr %{name}, align 8')
+            if REGISTER_SSA and self.values is not None:
+                self.values[name] = value
         if shift:
             value = self.emit(f'lshr i{width} {value}, {shift}')
         return value if bits == width else self.emit(f'trunc i{width} {value} to i{bits}')
+
+    def write_register(self, name, value):
+        """Record a register write. Inside a block it stays an SSA value; at a boundary
+        `flush_registers` materializes it into the register's spill alloca."""
+        if REGISTER_SSA and self.values is not None:
+            self.values[name] = value
+            self.dirty.add(name)
+        else:
+            width = self.register_width(name)
+            align = 16 if width == 128 else 8
+            self.lines.append(f'  store i{width} {value}, ptr %{name}, align {align}')
+
+    def flush_registers(self):
+        """Materialize the block's SSA register values so the next block can reload them.
+
+        A value loaded from the register file and never written is still only in the SSA map, so
+        every mapped register is spilled, not just the ones written in this block.
+        """
+        if not REGISTER_SSA or self.values is None:
+            return
+        for name in sorted(self.dirty, key=lambda name: SLOT_INDEX[name]):
+            width = self.register_width(name)
+            align = 16 if width == 128 else 8
+            self.lines.append(f'  store i{width} {self.values[name]}, ptr %{name}, align {align}')
+        self.dirty.clear()
+        self.values.clear()
 
     def store_vector(self, name, value, bits=128, zero_upper=False):
         if bits != 128:
@@ -1555,7 +1606,7 @@ class Function:
                 old = self.load(name, 128)
                 high = self.emit(f'and i128 {old}, {((1 << 128) - 1) ^ ((1 << bits) - 1)}')
                 value = self.emit(f'or i128 {high}, {value}')
-        self.lines.append(f'  store i128 {value}, ptr %{name}, align 16')
+        self.write_register(name, value)
 
     def store(self, name, value, bits=64, shift=0):
         if bits != 64:
@@ -1566,7 +1617,7 @@ class Function:
             if shift:
                 value = self.emit(f'shl i64 {value}, {shift}')
             value = self.emit(f'or i64 {value}, {masked}')
-        self.lines.append(f'  store i64 {value}, ptr %{name}, align 8')
+        self.write_register(name, value)
 
     def frame_pointer(self, offset):
         return self.emit(f'getelementptr i8, ptr %frame, i64 {self.depth + offset}')
@@ -1792,36 +1843,50 @@ class Function:
     def uniform_gep(self, block, bank, index):
         return self.emit(f'getelementptr inbounds %regfile, ptr {block}, i64 0, i32 {bank}, i64 {index}')
 
-    def uniform_load_registers(self, block, skip=()):
+    def uniform_load_registers(self, block, slots=None, skip=()):
+        def selected(name):
+            return name not in skip and (slots is None or name in slots)
         for index, reg in enumerate(REGISTERS):
-            if reg in skip:
+            if not selected(reg):
                 continue
             gep = self.uniform_gep(block, 0, index)
             value = self.emit(f'load i64, ptr {gep}, align 8')
-            self.lines.append(f'  store i64 {value}, ptr %{reg}, align 8')
+            self.write_register(reg, value)
         for index, reg in enumerate(VECTOR_REGISTERS):
+            if not selected(reg):
+                continue
             gep = self.uniform_gep(block, 1, index)
             value = self.emit(f'load i128, ptr {gep}, align 16')
-            self.lines.append(f'  store i128 {value}, ptr %{reg}, align 16')
+            self.write_register(reg, value)
         for index in range(16):
+            if not selected(f'ymm_hi{index}'):
+                continue
             gep = self.uniform_gep(block, 2, index)
             value = self.emit(f'load i128, ptr {gep}, align 16')
-            self.lines.append(f'  store i128 {value}, ptr %ymm_hi{index}, align 16')
+            self.write_register(f'ymm_hi{index}', value)
 
-    def uniform_store_registers(self, block, rsp=None):
+    def uniform_store_registers(self, block, slots=None, rsp=None):
         for index, reg in enumerate(REGISTERS):
             # The rsp slot carries the guest stack pointer, which the frame pointer only stands in
             # for locally: publishing the frame address would hand a callee a host address, and its
-            # own `add/sub rsp, imm` flags would then follow that address (see `outgoing_rsp`).
-            value = rsp if reg == 'rsp' and rsp is not None else self.emit(f'load i64, ptr %{reg}, align 8')
+            # own `add/sub rsp, imm` flags would then follow that address (see `outgoing_rsp`). The
+            # slot is published even when the callee summary does not name rsp, because the callee's
+            # prologue always copies the incoming guest rsp out of it.
+            if reg != 'rsp' and slots is not None and reg not in slots:
+                continue
+            value = rsp if reg == 'rsp' and rsp is not None else self.load(reg)
             gep = self.uniform_gep(block, 0, index)
             self.lines.append(f'  store i64 {value}, ptr {gep}, align 8')
         for index, reg in enumerate(VECTOR_REGISTERS):
-            value = self.emit(f'load i128, ptr %{reg}, align 16')
+            if slots is not None and reg not in slots:
+                continue
+            value = self.load(reg, 128)
             gep = self.uniform_gep(block, 1, index)
             self.lines.append(f'  store i128 {value}, ptr {gep}, align 16')
         for index in range(16):
-            value = self.emit(f'load i128, ptr %ymm_hi{index}, align 16')
+            if slots is not None and f'ymm_hi{index}' not in slots:
+                continue
+            value = self.load(f'ymm_hi{index}', 128)
             gep = self.uniform_gep(block, 2, index)
             self.lines.append(f'  store i128 {value}, ptr {gep}, align 16')
 
@@ -1980,8 +2045,38 @@ class Function:
         repaired['saved'] = {}
         return repaired
 
+    def call_masks(self, ins, callee, slot):
+        """The (store, load) register masks a uniform call site needs.
+
+        A direct call uses its callee's summary; an indirect site unions the summaries over its
+        declared target set. A site the contract does not annotate (the runtime dispatch
+        fallback) stays full, so no register is ever skipped without a proof.
+        """
+        if slot == 'operand':
+            site = self.image.annotated_calls(self.contract).get(ins.address)
+            if site is None:
+                return registers.FULL, registers.FULL
+            # A pool target set is shared by thousands of sites and can hold tens of thousands of
+            # addresses; the summary pass already unioned it once.
+            index = site.get('target_set')
+            if index is not None:
+                masks = registers.pool_mask(self.image, index)
+                if masks is not None:
+                    return masks
+            store = load = 0
+            for target in site['target_addresses']:
+                target_store, target_load = registers.summary(self.image, target)
+                store |= target_store
+                load |= target_load
+            return store, load
+        return registers.summary(self.image, callee.get('address'))
+
     def uniform_call(self, ins, callee, slot, state, tail, result):
-        self.uniform_store_registers('%rf_out', self.outgoing_rsp(state, 8 if tail else 0))
+        store, load = self.call_masks(ins, callee, slot)
+        # The callee's read set goes into the outgoing file, and the rsp slot always carries the
+        # guest stack pointer (see `outgoing_rsp`), not the caller's frame address.
+        self.uniform_store_registers('%rf_out', registers.names(store),
+                                     self.outgoing_rsp(state, 8 if tail else 0))
         # A tail jmp leaves the guest return address at [rsp], so the callee's window starts one slot
         # above the caller's rsp; a `call` pushes that return address itself, so its window starts at
         # the rsp the args were pushed to.
@@ -1996,15 +2091,36 @@ class Function:
         else:
             target = '@' + callee['name']
         self.lines.append(f'  call void {target}(ptr %rf_out)')
-        self.uniform_load_registers('%rf_out', skip=('rsp',))
+        self.uniform_load_registers('%rf_out', registers.names(load), skip=('rsp',))
         if tail:
             self.uniform_copy_state('%rf', '%rf_out')
             self.uniform_store_registers('%rf')
             self.lines.append('  ret void')
 
+    def block_boundaries(self):
+        """The addresses that start an emitted basic block, and the instructions that end one.
+
+        A block starts at the entry, at a branch target, and after a terminator; between two
+        boundaries the guest registers stay SSA values, so only the boundaries spill them. The
+        first emitted block always needs a label even when it is not reachable (a dead fragment).
+        """
+        ordered = sorted(self.instructions)
+        terminators = {address for address, ins in self.instructions.items()
+                       if ins.mnemonic.startswith('j') or ins.mnemonic in ('ret', 'ud2', 'int3')
+                       or not self.successors[address]}
+        leaders = {self.start, ordered[0]}
+        for address in terminators:
+            leaders.update(self.successors[address])
+        for previous, address in zip(ordered, ordered[1:]):
+            if previous in terminators:
+                leaders.add(address)
+        return leaders, terminators
+
     def lower(self):
         result, parameters = signature(self.contract)
         name = self.contract['name']
+        self.values = {}
+        self.dirty = set()
         if self.uniform:
             self.lines = [f'define void @{name}(ptr %rf) uwtable {{', 'entry:']
             if getattr(self, 'entry_index', None) is not None:
@@ -2041,7 +2157,7 @@ class Function:
             self.uniform_load_registers('%rf')
             self.uniform_load_state('%rf')
             self.uniform_stack_in('%rf')
-            incoming = self.emit('load i64, ptr %rsp')
+            incoming = self.load('rsp')
             self.lines.append(f'  store i64 {incoming}, ptr %rsp_guest, align 8')
             self.rsp_guest = '%rsp_guest'
             self.store('rsp', self.emit(f'ptrtoint ptr {self.frame_pointer(0)} to i64'))
@@ -2064,11 +2180,20 @@ class Function:
             valid = self.emit(f'icmp eq i64 {control}, 0')
             self.lines.extend([f'  br i1 {valid}, label %native_fp_valid, label %native_fp_invalid',
                                'native_fp_invalid:', '  call void @llvm.trap()', '  unreachable', 'native_fp_valid:'])
+        # The prologue's register values must reach the entry block's allocas before the branch
+        # that leaves the prologue; the entry block then reloads them like any other block.
+        self.flush_registers()
         self.lines.append(f"  br label %b{self.start:x}")
+        leaders, terminators = self.block_boundaries()
         for address in sorted(self.instructions):
             ins = self.instructions[address]
             args, op = ins.operands, ins.mnemonic
-            self.lines.append(f'b{address:x}:')
+            if address in leaders:
+                self.flush_registers()
+                self.lines.append(f'b{address:x}:')
+            if address in terminators and self.successors[address]:
+                # The terminator's own lowering emits the branch, so the spill must happen first.
+                self.flush_registers()
             state = self.states[address]
             terminal = False
             if fma.lower(self, ins) or avx.lower(self, ins) or vector.lower(self, ins) or x87.lower(self, ins):
@@ -2340,7 +2465,13 @@ class Function:
                 require(abi.uniform(callee), 'fall-through tail call requires a uniform callee')
                 self.uniform_call(ins, callee, slot, self.repair_frame(state), True, result)
                 terminal = True
-            if not terminal:
+            if terminal:
+                # The lowering already emitted the terminator; a value written after the spill
+                # belongs to the terminating edge, not to the successor blocks.
+                self.values.clear()
+                self.dirty.clear()
+            elif address + ins.size in leaders:
+                self.flush_registers()
                 self.lines.append(f'  br label %b{address + ins.size:x}')
         self.lines.append('}')
         return '\n'.join(self.lines)
@@ -2398,6 +2529,7 @@ def compile_image(image, sink=None, emit_bodies=True, analyze=True):
     # A whole-title build sets allow_unimplemented so a rejected body becomes a reporting trap
     # stub instead of failing the image; the SDK samples keep the strict default.
     tolerant = bool(image.contracts.get('allow_unimplemented'))
+    registers.prepare(image)
     functions, stubs = [], []
     if analyze:
         for spec in image.functions.values():
