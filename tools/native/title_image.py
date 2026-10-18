@@ -12,6 +12,7 @@ usage: title_image.py --elf eboot.elf --contracts title.contracts.json --output 
 """
 import argparse
 import json
+import os
 import sys
 import time
 from collections import deque
@@ -24,6 +25,17 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "core" / "aot"))
 from compiler import Image, compile_image, Rejected  # noqa: E402
 from toolchain import build_native_object  # noqa: E402
 import abi  # noqa: E402
+import guest_layout  # noqa: E402
+
+
+def default_guest_base():
+    """The slide the native runtime will place the whole guest address space at.
+
+    The launcher exports the same value as ANYPS5_GUEST_BASE; exporting it for the build too keeps
+    the compiler's address translation and the HLE arena in step.
+    """
+    value = os.environ.get('ANYPS5_GUEST_BASE')
+    return int(value, 0) if value else guest_layout.NATIVE_GUEST_BASE
 
 
 def title_process_parameters(image):
@@ -184,8 +196,8 @@ def main():
     parser.add_argument('--limit', type=int, default=600)
     parser.add_argument('--entries', default='entry,init')
     parser.add_argument('--nid-symbols', help='file of runtime symbol names (one per line, underscore stripped)')
-    parser.add_argument('--guest-base', type=lambda value: int(value, 0), default=0x140000000,
-                        help='slide added to every guest vaddr (the Rosetta relinked base by default)')
+    parser.add_argument('--guest-base', type=lambda value: int(value, 0), default=default_guest_base(),
+                        help='slide added to every guest vaddr; the native arm64 placement above the macOS hole by default')
     parser.add_argument('--hle-log', action='store_true',
                         help='log every import call and its return through HleLogCall/HleLogReturn')
     parser.add_argument('--abi', help='ABI annotations the contracts were generated from; a stale '

@@ -1,4 +1,5 @@
 #include "prx/libc/include/GuestArena.hpp"
+#include "prx/libc/include/GuestLayout.hpp"
 #include "prx/libc/include/GuestWriteWatch.hpp"
 #include "prx/libc/include/WindowsMappings.hpp"
 #include <algorithm>
@@ -12,6 +13,7 @@
 #include <sys/mman.h>
 #endif
 #include <cstdio>
+#include <cstdlib>
 #include <iterator>
 #include <map>
 #include <mutex>
@@ -19,6 +21,12 @@
 #include <system_error>
 #include <utility>
 #include <vector>
+
+#ifdef __APPLE__
+#include <mach/mach.h>
+#include <mach/mach_vm.h>
+#include <mach/vm_region.h>
+#endif
 
 #ifdef _WIN32
 #include <windows.h>
@@ -33,14 +41,43 @@ std::atomic<void (*)(std::uintptr_t, std::size_t, std::uint64_t)> privateMapping
 #endif
 
 #ifdef ANYPS5_ENABLE_ASAN
-constexpr std::uintptr_t GuestArenaOffset = 0x0000100000000000ull;
+constexpr std::uintptr_t DefaultSlide = 0x0000100000000000ull;
 #else
-constexpr std::uintptr_t GuestArenaOffset = 0;
+constexpr std::uintptr_t DefaultSlide = 0;
 #endif
-constexpr std::uintptr_t ArenaStart = 0x0000000200000000ull + GuestArenaOffset;
-constexpr std::uintptr_t SystemReservedStart = 0x00000007FFFFC000ull + GuestArenaOffset;
-constexpr std::uintptr_t SystemReservedEnd = 0x0000001000000000ull + GuestArenaOffset;
-constexpr std::uintptr_t ApplicationAreaEnd = 0x000000FC00000000ull + GuestArenaOffset;
+
+// One slide moves the whole guest address space (application area and system reservation) so the
+// native arm64 process can map it above the range macOS refuses. The compiler's guest_base and the
+// image's segment table carry the same value. The native launcher sets it with
+// GuestArenaSetOffset, or exports ANYPS5_GUEST_BASE, which the arena reads before it is
+// constructed. The read is lazy so a launcher's setenv in main is seen.
+std::atomic<std::uintptr_t> arenaSlide{DefaultSlide};
+std::atomic<bool> arenaSlideExplicit{false};
+
+std::uintptr_t ReadSlide() {
+    if (arenaSlideExplicit.load(std::memory_order_acquire)) return arenaSlide.load(std::memory_order_acquire);
+    if (const char* value = std::getenv(GuestLayout::SlideEnvironment)) {
+        char* end = nullptr;
+        const auto parsed = std::strtoull(value, &end, 0);
+        if (end != value && *end == '\0') return static_cast<std::uintptr_t>(parsed);
+    }
+    return arenaSlide.load(std::memory_order_acquire);
+}
+
+struct Layout {
+    std::uintptr_t arenaStart;
+    std::uintptr_t systemReservedStart;
+    std::uintptr_t systemReservedEnd;
+    std::uintptr_t applicationAreaEnd;
+};
+
+Layout ComputeLayout() {
+    const std::uintptr_t slide = ReadSlide();
+    return {static_cast<std::uintptr_t>(GuestLayout::ApplicationAreaStart) + slide,
+            static_cast<std::uintptr_t>(GuestLayout::SystemReservedStart) + slide,
+            static_cast<std::uintptr_t>(GuestLayout::SystemReservedEnd) + slide,
+            static_cast<std::uintptr_t>(GuestLayout::ApplicationAreaEnd) + slide};
+}
 
 std::uintptr_t alignUp(std::uintptr_t value, std::size_t alignment) {
     return (value + alignment - 1) & ~(static_cast<std::uintptr_t>(alignment) - 1);
@@ -151,16 +188,19 @@ public:
 
 private:
     Arena() {
+        const Layout layout = ComputeLayout();
 #if defined(__linux__)
-        SeedLinuxUsedRanges();
+        SeedLinuxUsedRanges(layout);
+        _base = layout.arenaStart;
+        _end = layout.applicationAreaEnd;
 #elif defined(_WIN32)
         _writeWatched = std::getenv("APS5_NO_WRITE_WATCH") == nullptr;
         SYSTEM_INFO system{};
         GetSystemInfo(&system);
         const std::uintptr_t granularity = system.dwAllocationGranularity;
-        const std::uintptr_t end = ApplicationAreaEnd;
+        const std::uintptr_t end = layout.applicationAreaEnd;
         std::uint32_t retries = 0;
-        for (std::uintptr_t cursor = ArenaStart; cursor < end;) {
+        for (std::uintptr_t cursor = layout.arenaStart; cursor < end;) {
             MEMORY_BASIC_INFORMATION info{};
             if (VirtualQuery(reinterpret_cast<const void*>(cursor), &info, sizeof(info)) == 0) throw std::system_error(static_cast<int>(GetLastError()), std::system_category(), "query the guest arena range");
             const auto regionEnd = std::min(end, reinterpret_cast<std::uintptr_t>(info.BaseAddress) + info.RegionSize);
@@ -177,15 +217,24 @@ private:
             cursor = regionEnd;
         }
         _hostRegions = _holes;
-        _holes.emplace_back(SystemReservedStart, SystemReservedEnd);
+        _holes.emplace_back(layout.systemReservedStart, layout.systemReservedEnd);
         for (const auto& [holeStart, holeEnd] : _holes) _used.emplace(holeStart, holeEnd);
-        _base = ArenaStart;
+        _base = layout.arenaStart;
         _end = end;
+#elif defined(__APPLE__)
+        // macOS has no /proc/self/maps and refuses fixed mappings in [64 GiB, 512 GiB). The arena
+        // is only usable once the slide has moved it above that hole; otherwise it stays
+        // unavailable and DirectMemory places mappings itself (the Rosetta path).
+        if (layout.arenaStart >= GuestLayout::MacOsRefusedEnd) {
+            SeedDarwinUsedRanges(layout);
+            _base = layout.arenaStart;
+            _end = layout.applicationAreaEnd;
+        }
 #endif
     }
 
 #if defined(__linux__)
-    void SeedLinuxUsedRanges() {
+    void SeedLinuxUsedRanges(const Layout& layout) {
         std::ifstream maps("/proc/self/maps");
         if (!maps.is_open()) throw std::runtime_error("guest arena: cannot open /proc/self/maps");
         std::string line;
@@ -194,17 +243,15 @@ private:
             std::uintptr_t begin = 0, end = 0;
             char dash = 0;
             if (!(fields >> std::hex >> begin >> dash >> end) || dash != '-' || end <= begin) throw std::runtime_error("guest arena: malformed /proc/self/maps line: " + line);
-            if (end <= ArenaStart || begin >= ApplicationAreaEnd) continue;
-            const auto first = std::max(begin, ArenaStart);
-            const auto last = std::min(end, ApplicationAreaEnd);
+            if (end <= layout.arenaStart || begin >= layout.applicationAreaEnd) continue;
+            const auto first = std::max(begin, layout.arenaStart);
+            const auto last = std::min(end, layout.applicationAreaEnd);
             _used.emplace(first, last);
             _hostRegions.emplace_back(first, last);
         }
-        _used.emplace(SystemReservedStart, SystemReservedEnd);
-        _hostRegions.emplace_back(SystemReservedStart, SystemReservedEnd);
-        ReserveFreeRanges();
-        _base = ArenaStart;
-        _end = ApplicationAreaEnd;
+        _used.emplace(layout.systemReservedStart, layout.systemReservedEnd);
+        _hostRegions.emplace_back(layout.systemReservedStart, layout.systemReservedEnd);
+        ReserveFreeRanges(layout);
     }
 
     static void TryReserve(std::vector<std::pair<std::uintptr_t, std::uintptr_t>>& occupied, std::uintptr_t from, std::uintptr_t to) {
@@ -227,20 +274,49 @@ private:
         }
     }
 
-    void ReserveFreeRanges() {
+    void ReserveFreeRanges(const Layout& layout) {
         std::vector<std::pair<std::uintptr_t, std::uintptr_t>> occupied;
-        std::uintptr_t cursor = ArenaStart;
+        std::uintptr_t cursor = layout.arenaStart;
         for (const auto& [usedStart, usedEnd] : _used) {
-            if (usedStart > ApplicationAreaEnd) break;
-            if (usedStart > cursor) TryReserve(occupied, cursor, std::min(usedStart, ApplicationAreaEnd));
+            if (usedStart > layout.applicationAreaEnd) break;
+            if (usedStart > cursor) TryReserve(occupied, cursor, std::min(usedStart, layout.applicationAreaEnd));
             if (usedEnd > cursor) cursor = usedEnd;
-            if (cursor >= ApplicationAreaEnd) break;
+            if (cursor >= layout.applicationAreaEnd) break;
         }
-        if (cursor < ApplicationAreaEnd) TryReserve(occupied, cursor, ApplicationAreaEnd);
+        if (cursor < layout.applicationAreaEnd) TryReserve(occupied, cursor, layout.applicationAreaEnd);
         for (const auto& [from, to] : occupied) {
             _used.emplace(from, to);
             _hostRegions.emplace_back(from, to);
         }
+    }
+#endif
+
+#if defined(__APPLE__)
+    // No /proc/self/maps on macOS: walk the process's mappings with mach_vm_region and mark every
+    // host range inside the arena used, then reserve the PS5 system area. Nothing is reserved
+    // eagerly; the arena is far above the process's own mappings and commits lazily with MAP_FIXED.
+    void SeedDarwinUsedRanges(const Layout& layout) {
+        mach_vm_address_t region = layout.arenaStart;
+        while (region < layout.applicationAreaEnd) {
+            mach_vm_size_t size = 0;
+            vm_region_basic_info_data_64_t info{};
+            mach_msg_type_number_t count = VM_REGION_BASIC_INFO_COUNT_64;
+            mach_port_t object = MACH_PORT_NULL;
+            if (mach_vm_region(mach_task_self(), &region, &size, VM_REGION_BASIC_INFO_64,
+                               reinterpret_cast<vm_region_info_t>(&info), &count, &object) != KERN_SUCCESS)
+                break;
+            const auto begin = static_cast<std::uintptr_t>(region);
+            const auto end = begin + static_cast<std::uintptr_t>(size);
+            const auto first = std::max(begin, layout.arenaStart);
+            const auto last = std::min(end, layout.applicationAreaEnd);
+            if (first < last) {
+                _used.emplace(first, last);
+                _hostRegions.emplace_back(first, last);
+            }
+            region = end;
+        }
+        _used.emplace(layout.systemReservedStart, layout.systemReservedEnd);
+        _hostRegions.emplace_back(layout.systemReservedStart, layout.systemReservedEnd);
     }
 #endif
 
@@ -264,8 +340,19 @@ public:
     }
 };
 
+// On Linux and Windows the arena reserves its address space at load time. On Darwin the slide is
+// set by the native launcher in main, before the guest heap first asks for the arena, so the
+// construction is left lazy there.
+#if !defined(__APPLE__)
 const bool g_reserved = (Arena::Get(), true);
+#endif
 
+}
+
+void GuestArenaSetOffset_nid_postfix(std::uint64_t offset) {
+    if ((offset & 0xFFF) != 0) throw std::invalid_argument("guest arena offset must be page aligned");
+    arenaSlide.store(static_cast<std::uintptr_t>(offset), std::memory_order_release);
+    arenaSlideExplicit.store(true, std::memory_order_release);
 }
 
 bool GuestArenaAvailable_nid_postfix() {
