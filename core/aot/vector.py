@@ -14,11 +14,17 @@ SQRT_OPS = {'sqrtss': 32, 'sqrtsd': 64}
 CONVERTS = {'cvtsi2ss': 32, 'cvtsi2sd': 64, 'cvtsd2ss': 64, 'cvtss2sd': 32}
 TO_INT = {'cvttss2si': 32, 'cvttsd2si': 64, 'cvtss2si': 32, 'cvtsd2si': 64}
 COMPARES = {'comiss': 32, 'ucomiss': 32, 'comisd': 64, 'ucomisd': 64}
-PACKED_BINARY = {'paddb': ('add', 8), 'paddq': ('add', 64), 'psubd': ('sub', 32), 'psubq': ('sub', 64)}
+PACKED_BINARY = {'paddb': ('add', 8), 'paddw': ('add', 16), 'paddq': ('add', 64), 'psubw': ('sub', 16),
+                 'psubd': ('sub', 32), 'psubq': ('sub', 64)}
 PACKED_MINMAX_INT = {'pmaxub': (8, False), 'pminub': (8, True), 'pmaxuw': (16, False), 'pminuw': (16, True)}
 PACKED_MUL = {'pmuludq': False, 'pmuldq': True}
+MADD = {'pmaddwd'}
+PEXTR = {'pextrb': 8, 'pextrw': 16, 'pextrd': 32, 'pextrq': 64}
+PINS = {'pinsrb': 8, 'pinsrw': 16, 'pinsrd': 32, 'pinsrq': 64}
+BLENDS_IMM = {'pblendw': 16, 'blendps': 32, 'blendpd': 64}
 PACKS = {'packsswb': (16, 8), 'packssdw': (32, 16)}
 SHUF_WORDS = {'pshuflw', 'pshufhw'}
+DUPS = {'movshdup': 32, 'movsldup': 32, 'movddup': 64}
 PACKED_SHIFTS = {'psrlw': ('lshr', 16), 'psrld': ('lshr', 32), 'psrlq': ('lshr', 64),
                  'psraw': ('ashr', 16), 'psrad': ('ashr', 32), 'psllw': ('shl', 16),
                  'pslld': ('shl', 32), 'psllq': ('shl', 64)}
@@ -45,11 +51,17 @@ CMP_MNEMONICS = {f'cmp{suffix}{kind}': (lane, index)
                  for kind, lane in (('ps', 32), ('pd', 64), ('ss', 32), ('sd', 64))}
 SHUFFLES = {'shufps', 'pshufd', 'unpcklps', 'unpckhps', 'unpcklpd', 'unpckhpd',
             'punpcklbw', 'punpcklwd', 'punpcklqdq', 'punpckhqdq', 'movlhps', 'movhlps'}
+PACKED_SAT = {'paddsb': ('sadd.sat', 8), 'paddsw': ('sadd.sat', 16),
+              'paddusb': ('uadd.sat', 8), 'paddusw': ('uadd.sat', 16),
+              'psubsb': ('ssub.sat', 8), 'psubsw': ('ssub.sat', 16),
+              'psubusb': ('usub.sat', 8), 'psubusw': ('usub.sat', 16)}
 SUPPORTED = (FULL_MOVES | set(BITWISE) | set(FLOAT_OPS) | SHUFFLES | set(SQRT_OPS)
              | set(CONVERTS) | set(TO_INT) | set(COMPARES) | set(PACKED_SHIFTS) | set(PACKED_BINARY) | set(PACKED_MINMAX_INT) | set(PACKED_MUL)
              | set(PACKS) | SHUF_WORDS | set(PACKED_CMPEQ) | set(PACKED_CMPGT)
              | set(PACKED_MINMAX) | set(PACKED_UNPACKS) | set(CMP_MNEMONICS) | set(CMP_GENERIC)
-             | set(CVT_PACKED) | {
+             | set(CVT_PACKED) | set(DUPS) | set(PACKED_SAT) | {
+    'movhpd', 'pshufb', 'pmaddubsw', 'pmaddwd', 'pblendw', 'blendps', 'blendpd',
+    'pextrb', 'pextrw', 'pextrd', 'pextrq', 'pinsrb', 'pinsrw', 'pinsrd', 'pinsrq',
     'movd', 'movq', 'movss', 'movsd', 'movlps', 'movlpd', 'psrld', 'paddd', 'pcmpgtd',
     'packuswb', 'ucomiss', 'cvtsi2ss', 'paddb', 'pmaxub', 'pcmpeqb', 'pcmpeqd', 'psrad', 'movmskps',
     'pextrw', 'pmulhw', 'psadbw', 'phminposuw', 'pslldq', 'psrldq'})
@@ -188,7 +200,7 @@ def analyze(function, ins, state):
     elif op == 'movmskps':
         _check(function, ins, state, args[1], 128)
         _define(function, ins, state, args[0], 32)
-    elif op == 'pextrw':
+    elif op in PEXTR:
         _check(function, ins, state, args[1], 128)
         function.define(ins, state, args[0])
     elif op in ('pmulhw', 'psadbw'):
@@ -212,15 +224,70 @@ def analyze(function, ins, state):
                 index = lane if lane < 4 else 4 + ((control >> ((lane - 4) * 2)) & 3)
             known |= ((source >> (index * 16)) & 0xffff) << (lane * 16)
         _copy_mask(ins, state, args[0], known)
+    elif op in DUPS:
+        lane = DUPS[op]
+        source = _mask(function, ins, state, args[1])
+        lane_mask = (1 << lane) - 1
+        indices = [0, 0] if op == 'movddup' else ([1, 1, 3, 3] if op == 'movshdup' else [0, 0, 2, 2])
+        known = 0
+        for destination, source_index in enumerate(indices):
+            known |= ((source >> (source_index * lane)) & lane_mask) << (destination * lane)
+        _copy_mask(ins, state, args[0], known)
     elif op in PACKED_BINARY:
         left, right = (_mask(function, ins, state, operand) for operand in args[:2])
         _copy_mask(ins, state, args[0], _complete_lanes(left & right, PACKED_BINARY[op][1]))
+    elif op in PACKED_SAT:
+        left, right = (_mask(function, ins, state, operand) for operand in args[:2])
+        _copy_mask(ins, state, args[0], _complete_lanes(left & right, PACKED_SAT[op][1]))
+    elif op in PINS:
+        width = PINS[op]
+        lane = args[2].imm & (128 // width - 1)
+        source = _mask(function, ins, state, args[1]) & ((1 << width) - 1)
+        mask = (MASK128 ^ (((1 << width) - 1) << (lane * width))) | (source << (lane * width))
+        _copy_mask(ins, state, args[0], mask)
+    elif op == 'movhpd':
+        if _xmm(ins, args[0]):
+            source = _mask(function, ins, state, args[1]) & 0xffffffffffffffff
+            mask = (_mask(function, ins, state, args[0]) & 0xffffffffffffffff) | (source << 64)
+            _copy_mask(ins, state, args[0], mask)
+        else:
+            _check(function, ins, state, args[1], 64)
+            _define(function, ins, state, args[0])
+    elif op == 'pshufb':
+        # An index byte with its high bit set selects a zero; any other index selects the source
+        # byte, so only the selected bytes of the source have to be defined.
+        source = _mask(function, ins, state, args[0])
+        index = _mask(function, ins, state, args[1])
+        known = 0
+        for lane in range(16):
+            selector = (index >> (lane * 8)) & 0xff
+            if selector & 0x80:
+                known |= 0xff << (lane * 8)
+            else:
+                known |= ((source >> ((selector & 15) * 8)) & 0xff) << (lane * 8)
+        _copy_mask(ins, state, args[0], known)
+    elif op == 'pmaddubsw':
+        left, right = (_mask(function, ins, state, operand) for operand in args[:2])
+        _copy_mask(ins, state, args[0], _complete_lanes(left & right, 16))
     elif op in PACKED_MINMAX_INT:
         left, right = (_mask(function, ins, state, operand) for operand in args[:2])
         _copy_mask(ins, state, args[0], _complete_lanes(left & right, PACKED_MINMAX_INT[op][0]))
     elif op in PACKED_MUL:
         left, right = (_mask(function, ins, state, operand) for operand in args[:2])
         _copy_mask(ins, state, args[0], _complete_lanes(left & right, 32, 64))
+    elif op in MADD:
+        left, right = (_mask(function, ins, state, operand) for operand in args[:2])
+        _copy_mask(ins, state, args[0], _complete_lanes(left & right, 16, 32))
+    elif op in BLENDS_IMM:
+        width, control = BLENDS_IMM[op], args[2].imm
+        source = _mask(function, ins, state, args[1])
+        destination = _mask(function, ins, state, args[0])
+        lane = (1 << width) - 1
+        known = 0
+        for index in range(128 // width):
+            pick = source if (control >> index) & 1 else destination
+            known |= (pick & lane) << (index * width)
+        _copy_mask(ins, state, args[0], known)
     elif op in PACKED_SHIFTS:
         instruction, width = PACKED_SHIFTS[op]
         known = _mask(function, ins, state, args[0])
@@ -395,13 +462,76 @@ def lower(function, ins):
             bit = function.emit(f'shl i32 {bit}, {lane}')
             value = function.emit(f'or i32 {value}, {bit}')
         function.write(ins, args[0], value)
-    elif op == 'pextrw':
-        source = function.emit(f'bitcast i128 {read(args[1])} to <8 x i16>')
-        element = function.emit(f'extractelement <8 x i16> {source}, i32 {args[2].imm & 7}')
+    elif op in PEXTR:
+        width = PEXTR[op]
+        count = 128 // width
+        kind = f'<{count} x i{width}>'
+        source = function.emit(f'bitcast i128 {read(args[1])} to {kind}')
+        element = function.emit(f'extractelement {kind} {source}, i32 {args[2].imm & (count - 1)}')
         dest_bits = args[0].size * 8
-        if dest_bits > 16:
-            element = function.emit(f'zext i16 {element} to i{dest_bits}')
+        if dest_bits > width:
+            element = function.emit(f'zext i{width} {element} to i{dest_bits}')
         function.write(ins, args[0], element)
+    elif op in PACKED_SAT:
+        operation, lane = PACKED_SAT[op]
+        count = 128 // lane
+        kind = f'<{count} x i{lane}>'
+        left, right = (_cast(function, read(operand), 128, kind) for operand in args[:2])
+        result = function.emit(f'call {kind} @llvm.{operation}.v{count}i{lane}({kind} {left}, {kind} {right})')
+        _write(function, ins, args[0], function.emit(f'bitcast {kind} {result} to i128'))
+    elif op in PINS:
+        width = PINS[op]
+        count = 128 // width
+        kind = f'<{count} x i{width}>'
+        base = function.emit(f'bitcast i128 {read(args[0])} to {kind}')
+        source = read(args[1], width)
+        result = function.emit(f'insertelement {kind} {base}, i{width} {source}, i32 {args[2].imm & (count - 1)}')
+        _write(function, ins, args[0], function.emit(f'bitcast {kind} {result} to i128'))
+    elif op == 'movhpd':
+        if _xmm(ins, args[0]):
+            base = function.emit(f'bitcast i128 {read(args[0])} to <2 x i64>')
+            source = read(args[1], 64)
+            result = function.emit(f'insertelement <2 x i64> {base}, i64 {source}, i32 1')
+            _write(function, ins, args[0], function.emit(f'bitcast <2 x i64> {result} to i128'))
+        else:
+            base = function.emit(f'bitcast i128 {read(args[1])} to <2 x i64>')
+            high = function.emit(f'extractelement <2 x i64> {base}, i32 1')
+            function.write(ins, args[0], high)
+    elif op == 'pshufb':
+        kind = '<16 x i8>'
+        source = function.emit(f'bitcast i128 {read(args[0])} to {kind}')
+        index = function.emit(f'bitcast i128 {read(args[1])} to {kind}')
+        result = 'zeroinitializer'
+        for lane in range(16):
+            selector = function.emit(f'extractelement {kind} {index}, i32 {lane}')
+            high = function.emit(f'icmp slt i8 {selector}, 0')
+            offset = function.emit(f'and i8 {selector}, 15')
+            offset = function.emit(f'zext i8 {offset} to i32')
+            byte = function.emit(f'extractelement {kind} {source}, i32 {offset}')
+            byte = function.emit(f'select i1 {high}, i8 0, i8 {byte}')
+            result = function.emit(f'insertelement {kind} {result}, i8 {byte}, i32 {lane}')
+        _write(function, ins, args[0], function.emit(f'bitcast {kind} {result} to i128'))
+    elif op == 'pmaddubsw':
+        bytes_kind, words_kind = '<16 x i8>', '<16 x i16>'
+        left = function.emit(f'bitcast i128 {read(args[0])} to {bytes_kind}')
+        right = function.emit(f'bitcast i128 {read(args[1])} to {bytes_kind}')
+        left = function.emit(f'zext {bytes_kind} {left} to {words_kind}')
+        right = function.emit(f'sext {bytes_kind} {right} to {words_kind}')
+        product = function.emit(f'mul {words_kind} {left}, {right}')
+        product32 = function.emit(f'sext {words_kind} {product} to <16 x i32>')
+        evens = ', '.join(f'i32 {lane}' for lane in range(0, 16, 2))
+        odds = ', '.join(f'i32 {lane}' for lane in range(1, 16, 2))
+        low = function.emit(f'shufflevector <16 x i32> {product32}, <16 x i32> zeroinitializer, <8 x i32> <{evens}>')
+        high = function.emit(f'shufflevector <16 x i32> {product32}, <16 x i32> zeroinitializer, <8 x i32> <{odds}>')
+        total = function.emit(f'add <8 x i32> {low}, {high}')
+        bottom = ', '.join(['i32 -32768'] * 8)
+        top = ', '.join(['i32 32767'] * 8)
+        below = function.emit(f'icmp slt <8 x i32> {total}, <{bottom}>')
+        above = function.emit(f'icmp sgt <8 x i32> {total}, <{top}>')
+        clipped = function.emit(f'select <8 x i1> {below}, <8 x i32> <{bottom}>, <8 x i32> {total}')
+        clipped = function.emit(f'select <8 x i1> {above}, <8 x i32> <{top}>, <8 x i32> {clipped}')
+        result = function.emit(f'trunc <8 x i32> {clipped} to <8 x i16>')
+        _write(function, ins, args[0], function.emit(f'bitcast <8 x i16> {result} to i128'))
     elif op == 'pmulhw':
         kind = '<8 x i16>'
         left = function.emit(f'bitcast i128 {read(args[0])} to {kind}')
@@ -466,6 +596,15 @@ def lower(function, ins):
         mask = ', '.join(f'i32 {index}' for index in indices)
         result = function.emit(f'shufflevector <8 x i16> {source}, <8 x i16> zeroinitializer, <8 x i32> <{mask}>')
         _write(function, ins, args[0], function.emit(f'bitcast <8 x i16> {result} to i128'))
+    elif op in DUPS:
+        lane = DUPS[op]
+        count = 128 // lane
+        kind = f'<{count} x i{lane}>'
+        value = function.emit(f'bitcast i128 {read(args[1])} to {kind}')
+        indices = [0, 0] if op == 'movddup' else ([1, 1, 3, 3] if op == 'movshdup' else [0, 0, 2, 2])
+        mask = ', '.join(f'i32 {index}' for index in indices)
+        result = function.emit(f'shufflevector {kind} {value}, {kind} zeroinitializer, <{count} x i32> <{mask}>')
+        _write(function, ins, args[0], function.emit(f'bitcast {kind} {result} to i128'))
     elif op in PACKED_BINARY:
         instruction, width = PACKED_BINARY[op]
         count = 128 // width
@@ -483,6 +622,29 @@ def lower(function, ins):
         compare = function.emit(f'icmp {"ult" if is_min else "ugt"} {kind} {left}, {right}')
         result = function.emit(f'select <{count} x i1> {compare}, {kind} {left}, {kind} {right}')
         _write(function, ins, args[0], function.emit(f'bitcast {kind} {result} to i128'))
+    elif op in BLENDS_IMM:
+        width, control = BLENDS_IMM[op], args[2].imm
+        count = 128 // width
+        kind = f'<{count} x i{width}>'
+        left = _cast(function, read(args[0]), 128, kind)
+        right = _cast(function, read(args[1]), 128, kind)
+        indices = [count + index if (control >> index) & 1 else index for index in range(count)]
+        mask = ', '.join(f'i32 {index}' for index in indices)
+        result = function.emit(f'shufflevector {kind} {left}, {kind} {right}, <{count} x i32> <{mask}>')
+        _write(function, ins, args[0], _pack(function, result, width))
+    elif op in MADD:
+        words_kind, dwords_kind = '<8 x i16>', '<8 x i32>'
+        left = function.emit(f'bitcast i128 {read(args[0])} to {words_kind}')
+        right = function.emit(f'bitcast i128 {read(args[1])} to {words_kind}')
+        left = function.emit(f'sext {words_kind} {left} to {dwords_kind}')
+        right = function.emit(f'sext {words_kind} {right} to {dwords_kind}')
+        product = function.emit(f'mul {dwords_kind} {left}, {right}')
+        evens = ', '.join(f'i32 {lane}' for lane in range(0, 8, 2))
+        odds = ', '.join(f'i32 {lane}' for lane in range(1, 8, 2))
+        low = function.emit(f'shufflevector {dwords_kind} {product}, {dwords_kind} zeroinitializer, <4 x i32> <{evens}>')
+        high = function.emit(f'shufflevector {dwords_kind} {product}, {dwords_kind} zeroinitializer, <4 x i32> <{odds}>')
+        total = function.emit(f'add <4 x i32> {low}, {high}')
+        _write(function, ins, args[0], function.emit(f'bitcast <4 x i32> {total} to i128'))
     elif op in PACKED_MUL:
         signed = PACKED_MUL[op]
         count = 2

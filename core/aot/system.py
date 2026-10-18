@@ -7,7 +7,7 @@ ECX LZCNT. XGETBV(0) returns x87|SSE|AVX. RDTSC is a monotonic counter.
 """
 from capstone.x86 import X86_OP_REG
 
-OPERATIONS = {'cpuid', 'xgetbv', 'rdtsc'}
+OPERATIONS = {'cpuid', 'xgetbv', 'rdtsc', 'pause', 'monitorx', 'mwaitx'}
 
 LEAF1_ECX = (1 << 12) | (1 << 22) | (1 << 26) | (1 << 27) | (1 << 28) | (1 << 29) | (1 << 30)
 LEAF7_EBX = (1 << 3) | (1 << 5) | (1 << 8)
@@ -23,6 +23,9 @@ def analyze(function, ins, state):
     op = ins.mnemonic
     if op not in OPERATIONS:
         return False
+    if op in ('pause', 'monitorx', 'mwaitx'):
+        # A spin-loop hint (and its monitored-range wait) with no architectural state effect.
+        return True
     if op == 'cpuid':
         function.check_register(ins, state, 'rax', 32)
         function.check_register(ins, state, 'rcx', 32)
@@ -45,6 +48,8 @@ def lower(function, ins):
     op = ins.mnemonic
     if op not in OPERATIONS:
         return False
+    if op in ('pause', 'monitorx', 'mwaitx'):
+        return True
     if op == 'cpuid':
         leaf = function.load('rax', 32)
         registers = {'eax': '0', 'ebx': '0', 'ecx': '0', 'edx': '0'}

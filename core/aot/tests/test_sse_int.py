@@ -37,6 +37,49 @@ class SsePackedTests(NativeAvxHarness):
                 with self.subTest(mnemonic=mnemonic, control=control):
                     self.compare_native(f'{mnemonic} xmm0, xmm1, {control}', self.samples())
 
+    def test_saturating_add_sub(self):
+        for mnemonic in ('paddsb', 'paddsw', 'paddusb', 'paddusw',
+                         'psubsb', 'psubsw', 'psubusb', 'psubusw'):
+            with self.subTest(mnemonic=mnemonic):
+                self.compare_native(f'{mnemonic} xmm0, xmm1', self.samples())
+        self.compare_native('psubusw xmm0, xmmword ptr [rsi]', self.samples())
+
+    def test_multiply_add(self):
+        # pmaddubsw multiplies unsigned bytes by signed bytes and saturates the pairwise sum to
+        # i16; pmaddwd multiplies signed words and adds the pairs into i32.
+        self.compare_native('pmaddubsw xmm0, xmm1', self.samples())
+        self.compare_native('pmaddwd xmm0, xmm1', self.samples())
+
+    def test_byte_shuffle(self):
+        # pshufb zeroes a lane when the index byte's high bit is set and otherwise selects a
+        # source byte; both operands are xmm0/xmm1 so the whole 16-byte selector is exercised.
+        self.compare_native('pshufb xmm0, xmm1', self.samples())
+
+    def test_immediate_blends(self):
+        for mnemonic in ('pblendw', 'blendps', 'blendpd'):
+            for control in (0x00, 0x03, 0x5a, 0xfc, 0xff):
+                with self.subTest(mnemonic=mnemonic, control=control):
+                    self.compare_native(f'{mnemonic} xmm0, xmm1, {control}', self.samples())
+
+    def test_extract_element(self):
+        for mnemonic, destination, count in (('pextrb', 'eax', 16), ('pextrw', 'eax', 8),
+                                             ('pextrd', 'eax', 4), ('pextrq', 'rax', 2)):
+            for lane in (0, 1, count - 1):
+                with self.subTest(mnemonic=mnemonic, lane=lane):
+                    self.compare_native(f'{mnemonic} {destination}, xmm0, {lane}', self.samples())
+
+    def test_insert_element_from_memory(self):
+        # The GPR form reads rax, which this harness does not seed; the memory form reads the
+        # scratch bytes both sides fill with 0xa5.
+        for mnemonic, width, lanes in (('pinsrb', 'byte', (0, 1, 15)), ('pinsrw', 'word', (0, 1, 7)),
+                                       ('pinsrd', 'dword', (0, 1, 3)), ('pinsrq', 'qword', (0, 1))):
+            for lane in lanes:
+                with self.subTest(mnemonic=mnemonic, lane=lane):
+                    self.compare_native(f'{mnemonic} xmm0, {width} ptr [rdx], {lane}', self.samples())
+
+    def test_high_packed_double_move(self):
+        self.compare_native('movhpd xmm0, qword ptr [rdx]', self.samples())
+
     def test_word_multiply_high_and_sum_of_absolute_differences(self):
         for mnemonic in ('pmulhw', 'psadbw'):
             with self.subTest(mnemonic=mnemonic):

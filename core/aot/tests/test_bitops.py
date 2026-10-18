@@ -10,6 +10,7 @@ from pathlib import Path
 from capstone import Cs, CS_ARCH_X86, CS_MODE_64
 
 import integer
+import test_effects
 from test_integer import FLAG_ORDER, Harness, MASK64
 
 RFLAGS_BITS = {'cf': 0, 'pf': 2, 'zf': 6, 'sf': 7, 'of': 11}
@@ -104,6 +105,18 @@ class BitOpReferenceTests(unittest.TestCase):
             with self.subTest(name=name):
                 self.compare(code, samples, ('cf',))
 
+    def test_isolate_and_mask_lowest_set_bit(self):
+        randoms = random.Random(7731)
+        values = [0, 1, 2, 0x80, 0xff, 0x8000, 0x80000000, 0xffffffff, MASK64,
+                  0x123456789abcdef0, 1 << 63] + [randoms.getrandbits(64) for _ in range(40)]
+        for code, name in (('c4e278f3d9', 'blsi32'), ('c4e278f3d1', 'blsmsk32'), ('c4e278f3c9', 'blsr32'),
+                           ('c4e2f8f3d9', 'blsi64'), ('c4e2f8f3d1', 'blsmsk64'), ('c4e2f8f3c9', 'blsr64')):
+            width = 64 if code.startswith('c4e2f8') else 32
+            mask = (1 << width) - 1
+            samples = [(0, value & mask, 0) for value in values]
+            with self.subTest(name=name):
+                self.compare(code, samples, ('cf', 'zf', 'sf', 'of', 'pf'))
+
     def test_rotates_immediate_and_register_counts(self):
         randoms = random.Random(4422)
         values = [0, 1, 2, 0x80, 0xff, 0x8000, 0x80000000, 0xffffffff, MASK64,
@@ -142,6 +155,60 @@ class BitOpReferenceTests(unittest.TestCase):
                            ('0fbdc1', 'bsr32'), ('480fbdc1', 'bsr64')):
             with self.subTest(name=name):
                 self.compare(code, [(0xdeadbeef, value, 0) for value in values], ('zf',))
+
+
+class MemoryBitTestTests(unittest.TestCase):
+    """`bt m, r/imm` tests a bit of a bit string in memory, crossing operand boundaries."""
+    setUp = test_effects.CallEffectsTests.setUp
+    compile = test_effects.CallEffectsTests.compile
+    fixture = test_effects.CallEffectsTests.fixture
+
+    def test_memory_bit_test_with_a_register_index(self):
+        body = ('sub rsp, 16\n'
+                'mov qword ptr [rsp], rdi\n'
+                'mov qword ptr [rsp + 8], rsi\n'
+                'bt qword ptr [rsp], rdx\n'
+                'setc al\n'
+                'movzx eax, al\n'
+                'add rsp, 16\n'
+                'ret')
+        raw, contracts = self.fixture([('test_entry', body, ['i64', 'i64', 'i64'], 'i64')])
+        function, _, _ = self.compile(raw, contracts)
+        for value, high, index, expected in (
+                (0x20, 0, 5, 1), (0x20, 0, 4, 0), (1 << 63, 0, 63, 1), (0, 0, 0, 0),
+                (0, 1, 64, 1), (0, 0, 64, 0), (0, 1, 32, 0), (0, 1, 96, 0)):
+            with self.subTest(value=value, index=index):
+                self.assertEqual(function(value, high, index), expected)
+
+    def test_memory_bit_test_with_an_immediate_index(self):
+        body = ('sub rsp, 16\n'
+                'mov qword ptr [rsp], rdi\n'
+                'mov qword ptr [rsp + 8], rsi\n'
+                'bt qword ptr [rsp], 5\n'
+                'setc al\n'
+                'movzx eax, al\n'
+                'add rsp, 16\n'
+                'ret')
+        raw, contracts = self.fixture([('test_entry', body, ['i64', 'i64'], 'i64')])
+        function, _, _ = self.compile(raw, contracts)
+        self.assertEqual(function(0x20, 0), 1)
+        self.assertEqual(function(0x10, 0), 0)
+
+    def test_memory_bit_test_crosses_a_dword_boundary(self):
+        body = ('sub rsp, 16\n'
+                'mov dword ptr [rsp], edi\n'
+                'mov dword ptr [rsp + 4], esi\n'
+                'bt dword ptr [rsp], edx\n'
+                'setc al\n'
+                'movzx eax, al\n'
+                'add rsp, 16\n'
+                'ret')
+        raw, contracts = self.fixture([('test_entry', body, ['i64', 'i64', 'i64'], 'i64')])
+        function, _, _ = self.compile(raw, contracts)
+        for value, high, index, expected in (
+                (1, 0, 0, 1), (0, 1, 32, 1), (0, 0, 32, 0), (1, 0, 32, 0)):
+            with self.subTest(value=value, index=index):
+                self.assertEqual(function(value, high, index), expected)
 
 
 if __name__ == '__main__':

@@ -43,6 +43,16 @@ class FrameRestoreTests(unittest.TestCase):
             self.compile_ir(raw, contracts)
         self.assertIn('unsupported frame manipulation', str(raised.exception))
 
+    def test_leave_reads_the_frame_and_restores_rsp(self):
+        # leave = mov rsp, rbp ; pop rbp. The local slot is read before the frame is released.
+        body = ('push rbp\nmov rbp, rsp\nsub rsp, 16\n'
+                'mov qword ptr [rbp - 8], rdi\n'
+                'mov rax, qword ptr [rbp - 8]\n'
+                'leave\nret')
+        raw, contracts = self.fixture([('test_entry', body, ['i64'], 'i64')])
+        function, _, _ = self.compile(raw, contracts)
+        self.assertEqual(function(0x2a), 0x2a)
+
 
 if __name__ == '__main__':
     unittest.main()

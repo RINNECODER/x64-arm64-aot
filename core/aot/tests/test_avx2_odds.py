@@ -42,6 +42,13 @@ class Avx2OddsTests(NativeAvxHarness):
                 with self.subTest(mnemonic=mnemonic, width=width):
                     self.compare_native(f'{mnemonic} {width}0, {width}1, {width}2', self.samples())
 
+    def test_horizontal_adds(self):
+        for mnemonic in ('vphaddw', 'vphaddd', 'vhaddps', 'vhaddpd'):
+            for width in ('xmm', 'ymm'):
+                with self.subTest(mnemonic=mnemonic, width=width):
+                    self.compare_native(f'{mnemonic} {width}0, {width}1, {width}2',
+                                        self.samples(), nan_normalize=True)
+
     def test_vpmovmskb(self):
         for instruction in ('vpmovmskb eax, xmm0', 'vpmovmskb eax, ymm0'):
             with self.subTest(instruction=instruction):

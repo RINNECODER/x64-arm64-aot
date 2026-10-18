@@ -106,7 +106,11 @@ def analyze(function, ins, state):
         name, bits, _ = _accumulator(memory.size)
         function.check_register(ins, state, name, bits)
         function.define(ins, state, memory)
-        state['known'][name] = (1 << bits) - 1
+        # cmpxchg writes only the accumulator's low `bits` on failure. A 1- or 2-byte form leaves
+        # the upper bits unchanged (the lowering reloads and recombines them), so those bits stay
+        # as defined as they already were; a 4- or 8-byte form defines the whole register.
+        low = (1 << bits) - 1
+        state['known'][name] = low if bits >= 32 else state['known'].get(name, 0) | low
         state['flags'] = {'zf', 'sf', 'cf', 'of', 'pf'}
         return True
     if memory is None:

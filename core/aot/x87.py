@@ -15,7 +15,8 @@ OPERATIONS = {
     'fld', 'fldz', 'fld1', 'fldpi', 'fst', 'fstp', 'fild', 'fistp', 'fisttp',
     'fadd', 'faddp', 'fsub', 'fsubp', 'fsubr', 'fsubrp', 'fmul', 'fmulp', 'fdiv', 'fdivp',
     'fdivr', 'fdivrp', 'fchs', 'fabs', 'fsqrt', 'fxch', 'fcom', 'fcomp', 'fcompp',
-    'fucom', 'fucomp', 'fucompp', 'fcomi', 'fcomip', 'fucomi', 'fucomip',
+    'fucom', 'fucomp', 'fucompp', 'fcomi', 'fcomip', 'fucomi', 'fucomip', 'fucompi',
+    'fiadd', 'fisub', 'fisubr', 'fimul', 'fidiv', 'fidivr',
     'fnstsw', 'fnstcw', 'fldcw', 'fcmove', 'fcmovne', 'fcmovb', 'fcmovbe', 'fcmovnb',
     'fcmovnbe', 'fcmovu', 'fcmovnu', 'fprem', 'fprem1', 'frndint', 'fwait',
 }
@@ -30,7 +31,7 @@ def analyze(function, ins, state):
     op = ins.mnemonic
     if op not in OPERATIONS:
         return False
-    if op in ('fcomi', 'fcomip', 'fucomi', 'fucomip'):
+    if op in ('fcomi', 'fcomip', 'fucomi', 'fucomip', 'fucompi'):
         # These set the integer EFLAGS (CF/PF/ZF), which a following fcmovcc/conditional reads.
         state['flags'] = {'zf', 'pf', 'cf', 'of', 'sf'}
     if op in FCMOV and not FCMOV[op][1] <= state['flags']:
@@ -113,6 +114,17 @@ def lower(function, ins):
         value = _integer_memory(function, ins, args[0])
         _push(function, function.emit(f'sitofp i{args[0].size * 8} {value} to double'))
         return True
+    if op in ('fiadd', 'fisub', 'fisubr', 'fimul', 'fidiv', 'fidivr'):
+        if not args or args[0].type != X86_OP_MEM:
+            function.fail(ins, 'integer arithmetic requires a memory operand')
+        value = function.read(ins, args[0], args[0].size * 8)
+        other = function.emit(f'sitofp i{args[0].size * 8} {value} to double')
+        left, right = _st(function, 0), other
+        if op in ('fisubr', 'fidivr'):
+            left, right = right, left
+        operation = 'fadd' if op == 'fiadd' else ('fsub' if op.startswith('fisub') else ('fmul' if op == 'fimul' else 'fdiv'))
+        _set_st(function, 0, function.emit(f'{operation} double {left}, {right}'))
+        return True
     if op in ('fst', 'fstp'):
         if args[0].type == X86_OP_REG:
             _set_st(function, _index(ins, args[0]), _st(function, 0))
@@ -179,12 +191,11 @@ def lower(function, ins):
         _set_st(function, 0, b)
         _set_st(function, index, a)
         return True
-    if op in ('fcom', 'fcomp', 'fucom', 'fucomp', 'fcompp', 'fucompp', 'fcomi', 'fcomip', 'fucomi', 'fucomip'):
-        index = 1
-        for operand in args:
-            if operand.type == X86_OP_REG and _index(ins, operand) != 0:
-                index = _index(ins, operand)
-                break
+    if op in ('fcom', 'fcomp', 'fucom', 'fucomp', 'fcompp', 'fucompp', 'fcomi', 'fcomip',
+              'fucomi', 'fucomip', 'fucompi'):
+        # Capstone spells the explicit operand form (FUCOMIP ST(0), ST(i)) as `fucompi st(i)`;
+        # use it when present so `fucompi st(0)` compares ST(0) with itself rather than ST(1).
+        index = _index(ins, args[-1]) if args and args[-1].type == X86_OP_REG else 1
         left, right = _st(function, 0), _st(function, index)
         unordered = function.emit(f'fcmp uno double {left}, {right}')
         below = function.emit(f'fcmp olt double {left}, {right}')
@@ -192,14 +203,14 @@ def lower(function, ins):
         function.lines.append(f'  store i1 {unordered}, ptr %c0, align 1')
         function.lines.append(f'  store i1 {below}, ptr %c2, align 1')
         function.lines.append(f'  store i1 {equal}, ptr %c3, align 1')
-        if op in ('fcomi', 'fcomip', 'fucomi', 'fucomip'):
+        if op in ('fcomi', 'fcomip', 'fucomi', 'fucomip', 'fucompi'):
             zf = function.emit(f'or i1 {unordered}, {equal}')
             function.lines.append(f'  store i1 {zf}, ptr %zf, align 1')
             function.lines.append(f'  store i1 {unordered}, ptr %pf, align 1')
             function.lines.append(f'  store i1 {below}, ptr %cf, align 1')
             function.lines.append('  store i1 false, ptr %of, align 1')
             function.lines.append('  store i1 false, ptr %sf, align 1')
-        if op in ('fcomp', 'fcompp', 'fucomp', 'fucompp', 'fcomip', 'fucomip'):
+        if op in ('fcomp', 'fcompp', 'fucomp', 'fucompp', 'fcomip', 'fucomip', 'fucompi'):
             _pop(function)
         if op in ('fcompp', 'fucompp'):
             _pop(function)

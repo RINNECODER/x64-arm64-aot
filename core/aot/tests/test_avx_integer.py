@@ -12,6 +12,19 @@ class AvxIntegerTests(NativeAvxHarness):
                     self.compare_native(f'{mnemonic} {width}0, {width}1, {width}2', self.samples())
         self.compare_native('vpaddd ymm0, ymm1, [rsi]', self.samples())
 
+    def test_saturating_add_sub(self):
+        for mnemonic in ('vpaddsb', 'vpaddsw', 'vpaddusb', 'vpaddusw',
+                         'vpsubsb', 'vpsubsw', 'vpsubusb', 'vpsubusw'):
+            for width in ('xmm', 'ymm'):
+                with self.subTest(mnemonic=mnemonic, width=width):
+                    self.compare_native(f'{mnemonic} {width}0, {width}1, {width}2', self.samples())
+        self.compare_native('vpsubusw ymm0, ymm1, [rsi]', self.samples())
+
+    def test_unsigned_word_multiply_high(self):
+        for width in ('xmm', 'ymm'):
+            with self.subTest(width=width):
+                self.compare_native(f'vpmulhuw {width}0, {width}1, {width}2', self.samples())
+
     def test_compares(self):
         for mnemonic in ('vpcmpeqb', 'vpcmpeqw', 'vpcmpeqd', 'vpcmpeqq',
                          'vpcmpgtb', 'vpcmpgtw', 'vpcmpgtd', 'vpcmpgtq'):

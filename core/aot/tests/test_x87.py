@@ -139,3 +139,27 @@ class X87Tests(unittest.TestCase):
         ]
         for code in cases:
             self.check(code)
+
+    def test_fucompi_compares_sets_flags_and_pops_once(self):
+        # fld [rdi] ; fld [rdi+8] ; fucompi st(1) ; fstp [rsi+8] ; fld1 ; jae +2 ; fchs ;
+        # fstp [rsi] ; ret — capstone spells FUCOMIP ST(0), ST(1) as `fucompi st(1)`. The flags
+        # must come from b vs a, the pop must leave a on the stack for the first store, and the
+        # stack must end balanced.
+        code = bytes.fromhex('dd07dd4708dfe9dd5e08d9e87302d9e0dd1ec3')
+        samples = [(1.0, 2.0), (2.0, 1.0), (1.0, 1.0), (-3.0, 0.5), (0.5, -3.0)]
+        self.compare_memory(code, samples, in_size=8, out_size=16)
+
+    def test_fucompi_st0_compares_the_top_with_itself(self):
+        # fld [rdi] ; fucompi st(0) ; fld1 ; jae +2 ; fchs ; fstp [rsi] ; ret — `st(0)` is an
+        # explicit operand, so the comparison is ST(0) with ST(0) (always equal), not with ST(1).
+        code = bytes.fromhex('dd07dfe8d9e87302d9e0dd1ec3')
+        samples = [(1.5,), (2.0,), (-4.5,)]
+        self.compare_memory(code, samples, in_size=8, out_size=8)
+
+    def test_integer_arithmetic_from_memory(self):
+        # fild dword [rdi] ; fild dword [rdi+4] ; fisub dword [rdi] ; fstp qword [rsi] ; ret —
+        # the two int32 operands are loaded as doubles and FISUB subtracts the memory integer.
+        # The harness reinterprets the float payload as two int32s on both sides.
+        code = bytes.fromhex('db07db4704da27dd1ec3')
+        samples = [(1.5, 2.25), (3.0, 1.0), (-2.0, 7.5), (0.125, 100.0)]
+        self.compare_memory(code, samples, in_size=4, out_size=8)

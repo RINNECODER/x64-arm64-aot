@@ -11,9 +11,19 @@ ALIASES = {'z': 'e', 'nz': 'ne', 'c': 'b', 'nc': 'ae', 'na': 'be', 'nbe': 'a',
            'nb': 'ae', 'nae': 'b', 'ng': 'le', 'nge': 'l', 'nl': 'ge', 'nle': 'g', 'pe': 'p', 'po': 'np'}
 ROTATES = {'rol', 'ror', 'rcl', 'rcr'}
 SHIFTS = {'shl', 'sal', 'shr', 'sar'}
-OPERATIONS = {'inc', 'dec', 'imul', 'sbb', 'adc', 'cdqe', 'cdq', 'cwd', 'cqo', 'neg', 'not', 'div', 'idiv', 'blsr', 'bt', 'bts', 'btr', 'btc', 'bsf', 'bsr', 'mul', 'cwde', 'bswap',
+OPERATIONS = {'inc', 'dec', 'imul', 'sbb', 'adc', 'cdqe', 'cdq', 'cwd', 'cqo', 'neg', 'not', 'div', 'idiv', 'blsr', 'blsi', 'blsmsk', 'bt', 'bts', 'btr', 'btc', 'bsf', 'bsr', 'mul', 'cwde', 'bswap',
               'shld', 'shrd', 'cld', 'std',
               'prefetchnta', 'prefetcht0', 'prefetcht1', 'prefetcht2', 'prefetchw'} | SHIFTS | ROTATES
+
+
+# x86 CRC32 is the CRC32C (Castagnoli) accumulator; AArch64 has it as one instruction per width.
+CRC32_INTRINSICS = {8: 'crc32cb', 16: 'crc32ch', 32: 'crc32cw', 64: 'crc32cx'}
+INTRINSIC_DECLARATIONS = [
+    'declare i32 @llvm.aarch64.crc32cb(i32, i32)',
+    'declare i32 @llvm.aarch64.crc32ch(i32, i32)',
+    'declare i32 @llvm.aarch64.crc32cw(i32, i32)',
+    'declare i32 @llvm.aarch64.crc32cx(i32, i64)',
+]
 
 
 def condition(ins):
@@ -41,6 +51,12 @@ def analyze(function, ins, state):
             implicit_define(state, 'rcx', 64)
         return True
     conditional = op.startswith(('cmov', 'set'))
+    if op == 'crc32':
+        if len(args) != 2 or args[0].type != X86_OP_REG or args[0].size not in (4, 8) or args[1].type not in (X86_OP_REG, X86_OP_MEM):
+            function.fail(ins, 'crc32 requires a 32- or 64-bit register destination and a register or memory source')
+        function.read_operand(ins, state, args[1])
+        function.define(ins, state, args[0])
+        return True
     if op not in OPERATIONS and not conditional:
         return False
     if conditional:
@@ -68,7 +84,16 @@ def analyze(function, ins, state):
         function.read_operand(ins, state, args[0])
         function.define(ins, state, args[0])
         return True
-    if op in ('blsr', 'bt'):
+    if op in ('blsr', 'blsi', 'blsmsk', 'bt'):
+        if op == 'bt' and args and args[0].type == X86_OP_MEM:
+            # `bt m, r/imm` tests a bit of a bit string that may cross the operand: the byte is
+            # `index // width` bytes into memory and the bit is `index % width`.
+            if args[1].type not in (X86_OP_REG, X86_OP_IMM):
+                function.fail(ins, 'unsupported memory bit test')
+            for operand in args:
+                function.read_operand(ins, state, operand)
+            state['flags'] = {'cf'} | (state['flags'] & {'zf'})
+            return True
         if len(args) != 2 or args[0].type != X86_OP_REG:
             function.fail(ins, 'bit operation requires a register destination')
         if op == 'bt':
@@ -400,6 +425,17 @@ def lower_stos(function, ins):
 def lower(function, ins):
     op, args = ins.mnemonic, ins.operands
     conditional = op.startswith(('cmov', 'set'))
+    if op == 'crc32':
+        width = args[1].size * 8
+        if width not in CRC32_INTRINSICS:
+            function.fail(ins, 'unsupported crc32 source width')
+        accumulator = function.read(ins, args[0], 32)
+        source = function.read(ins, args[1], width)
+        if width < 32:
+            source = function.emit(f'zext i{width} {source} to i32')
+        result = function.emit(f'call i32 @llvm.aarch64.{CRC32_INTRINSICS[width]}(i32 {accumulator}, i{max(width, 32)} {source})')
+        function.write(ins, args[0], result if args[0].size == 4 else function.emit(f'zext i32 {result} to i64'))
+        return True
     if op.startswith('stos') or op.startswith('rep stos'):
         return lower_stos(function, ins)
     if op not in OPERATIONS and not conditional:
@@ -431,14 +467,42 @@ def lower(function, ins):
         function.flags('and', width, source, '0', result)
         store_flag(function, 'cf', function.emit(f'icmp eq i{width} {source}, 0'))
         function.write(ins, args[0], result)
+    elif op in ('blsi', 'blsmsk'):
+        width = args[0].size * 8
+        source = function.read(ins, args[1])
+        if op == 'blsi':
+            other = function.emit(f'sub i{width} 0, {source}')
+            result = function.emit(f'and i{width} {source}, {other}')
+            carry = function.emit(f'icmp ne i{width} {source}, 0')
+        else:
+            other = function.emit(f'sub i{width} {source}, 1')
+            result = function.emit(f'xor i{width} {other}, {source}')
+            carry = function.emit(f'icmp eq i{width} {source}, 0')
+        function.flags('and', width, source, '0', result)
+        store_flag(function, 'cf', carry)
+        function.write(ins, args[0], result)
     elif op == 'bt':
         width = args[0].size * 8
-        source = function.read(ins, args[0])
-        index = function.read(ins, args[1])
-        index_width = args[1].size * 8
-        index = function.emit(f'and i{index_width} {index}, {width - 1}')
-        index = extension(function, index, index_width, width)
-        shifted = function.emit(f'lshr i{width} {source}, {index}')
+        if args[0].type == X86_OP_MEM:
+            # Bit-string addressing: the operand spans `index // width` further bytes, exactly as
+            # the set/reset/complement form below.
+            pointer = function.address(ins, args[0])
+            base = function.emit(f'ptrtoint ptr {pointer} to i64')
+            raw = args[1].imm if args[1].type == X86_OP_IMM else function.read(ins, args[1])
+            index = extension(function, raw, args[1].size * 8, 64) if args[1].type != X86_OP_IMM else raw
+            shift = function.emit(f'lshr i64 {index}, {width.bit_length() - 1}')
+            offset = function.emit(f'mul i64 {shift}, {width // 8}')
+            target = function.emit(f'inttoptr i64 {function.emit(f"add i64 {base}, {offset}")} to ptr')
+            source = function.emit(f'load i{width}, ptr {target}, align 1')
+            masked = function.emit(f'and i64 {index}, {width - 1}')
+            bit = masked if width == 64 else function.emit(f'trunc i64 {masked} to i{width}')
+        else:
+            source = function.read(ins, args[0])
+            index = function.read(ins, args[1])
+            index_width = args[1].size * 8
+            index = function.emit(f'and i{index_width} {index}, {width - 1}')
+            bit = extension(function, index, index_width, width)
+        shifted = function.emit(f'lshr i{width} {source}, {bit}')
         store_flag(function, 'cf', function.emit(f'trunc i{width} {shifted} to i1'))
     elif op in ('bts', 'btr', 'btc'):
         width = args[0].size * 8
@@ -452,7 +516,8 @@ def lower(function, ins):
             offset = function.emit(f'mul i64 {shift}, {width // 8}')
             target = function.emit(f'inttoptr i64 {function.emit(f"add i64 {base}, {offset}")} to ptr')
             source = function.emit(f'load i{width}, ptr {target}, align 1')
-            bit = function.emit(f'trunc i64 {function.emit(f"and i64 {index}, {width - 1}")} to i{width}')
+            masked = function.emit(f'and i64 {index}, {width - 1}')
+            bit = masked if width == 64 else function.emit(f'trunc i64 {masked} to i{width}')
         else:
             source = function.read(ins, args[0])
             if args[1].type == X86_OP_IMM:

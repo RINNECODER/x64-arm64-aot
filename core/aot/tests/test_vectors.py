@@ -210,7 +210,8 @@ int main(void) {
 
     def test_integer_and_shuffle_semantics_against_x86(self):
         operations = ['xorps', 'andps', 'orps', 'pand', 'pandn', 'por', 'unpcklps', 'unpckhps', 'unpcklpd',
-                      'unpckhpd', 'punpcklqdq', 'punpckhqdq', 'movlhps', 'movhlps', 'paddd', 'pcmpgtd', 'packuswb']
+                      'unpckhpd', 'punpcklqdq', 'punpckhqdq', 'movlhps', 'movhlps', 'paddd', 'pcmpgtd', 'packuswb',
+                      'paddw', 'psubw', 'movddup', 'movshdup', 'movsldup']
         for operation in operations:
             with self.subTest(operation=operation):
                 self.compare(f'{operation} xmm0, xmm1', self.random_samples())

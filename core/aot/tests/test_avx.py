@@ -370,7 +370,8 @@ fn(*addresses, output, 0)
             avx.analyze(emitter, instructions[0], emitter.state)
         instructions, _ = self.instructions('vfmadd213ps ymm0, ymm1, ymm2')
         self.assertFalse(avx.analyze(emitter, instructions[0], emitter.state))
-        instructions, _ = self.instructions('vpmulhuw ymm0, ymm1, ymm2')
+        # vpmulhuw is lowered now; an AES round is not, so it stays the unsupported-integer case.
+        instructions, _ = self.instructions('vaesenc xmm0, xmm1, xmm2')
         self.assertFalse(avx.analyze(emitter, instructions[0], emitter.state))
 
 

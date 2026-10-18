@@ -52,7 +52,22 @@ BLENDS_VAR = {'vblendvps': 32, 'vblendvpd': 64, 'vpblendvb': 8}
 PERMIL_IMM = {'vpermilps': 32, 'vpermilpd': 64}
 PERMS = {'vperm2f128', 'vperm2i128', 'vinsertf128', 'vextractf128', 'vpermq', 'vpermd', 'vpermpd', 'vpermps'}
 DUPS = {'vmovshdup': 32, 'vmovsldup': 32, 'vmovddup': 64}
-PACKED_ODDS = {'vpmulhw', 'vpsadbw', 'vphminposuw'}
+PACKED_ODDS = {'vpmulhw', 'vpmulhuw', 'vpsadbw', 'vphminposuw'}
+# Saturating packed integer arithmetic: the LLVM saturating intrinsics lower to the NEON
+# saturating add/sub instructions, so these stay single instructions.
+PACKED_SAT = {'vpaddsb': ('sadd.sat', 8), 'vpaddsw': ('sadd.sat', 16),
+              'vpaddusb': ('uadd.sat', 8), 'vpaddusw': ('uadd.sat', 16),
+              'vpsubsb': ('ssub.sat', 8), 'vpsubsw': ('ssub.sat', 16),
+              'vpsubusb': ('usub.sat', 8), 'vpsubusw': ('usub.sat', 16)}
+# Horizontal adds: PHADDD/PHADDW/VHADDPS/VHADDPD add adjacent lanes within each 128-bit lane.
+HORIZONTAL = {'vphaddw': (16, False), 'vphaddd': (32, False),
+              'vhaddps': (32, True), 'vhaddpd': (64, True)}
+MXCSR = {'vstmxcsr', 'vldmxcsr'}
+# AVX2 gather: vgatherdps takes dword indices and 32-bit lanes, so the index and data vectors
+# have the same element count. The other gather forms (qword indices, 64-bit lanes) differ.
+GATHER = {'vgatherdps': (32, 'float')}
+AES = {'aesimc', 'vaesimc'}
+PCLMUL = {'pclmulqdq'}
 MASKED = {'vmaskmovps', 'vmaskmovpd', 'vpmaskmovd', 'vpmaskmovq'}
 BROADCAST128 = {'vbroadcastf128', 'vbroadcasti128'}
 ADDSUB = {'vaddsubps': 32, 'vaddsubpd': 64}
@@ -71,7 +86,7 @@ CMP = {f'vcmp{suffix}{kind}': (lane, index)
 FLAGS_COMPARE = {'vucomiss': 32, 'vucomisd': 64, 'vcomiss': 32, 'vcomisd': 64}
 MOVMSK = {'vmovmskps': 32, 'vmovmskpd': 64, 'movmskps': 32, 'movmskpd': 64,
           'pmovmskb': 8, 'vpmovmskb': 8}
-LEGACY = {'movmskps', 'movmskpd', 'pmovmskb'}
+LEGACY = {'movmskps', 'movmskpd', 'pmovmskb', 'aesimc', 'pclmulqdq'}
 VTEST = {'vtestps': 32, 'vtestpd': 64}
 ROUNDS = {'vroundps': 32, 'vroundpd': 64, 'vroundss': 32, 'vroundsd': 64}
 SQRT = {'vsqrtps': 32, 'vsqrtpd': 64, 'vsqrtss': 32, 'vsqrtsd': 64}
@@ -98,7 +113,8 @@ SUPPORTED = (MOVES | set(BITWISE) | ANDNOT | SCALAR_MOVES | set(BROADCASTS)
              | set(RECIP) | set(CVT_ROUND) | set(TO_INT) | set(EXTRACT_ELEM) | set(INSERT_ELEM)
              | EXTRACT128 | INSERT128 | set(PSHUFB) | set(PALIGNR) | HALF | set(LEGACY_MOVES)
              | set(DUPS) | BROADCAST128 | set(CMP) | set(SHUF_WORDS) | set(MUL64)
-             | set(ADDSUB) | set(MADD) | set(PACKED_ODDS) | set(MASKED))
+             | set(ADDSUB) | set(MADD) | set(PACKED_ODDS) | set(MASKED)
+             | set(PACKED_SAT) | set(HORIZONTAL) | MXCSR | set(GATHER) | AES | PCLMUL)
 MASK128 = (1 << 128) - 1
 MASK256 = (1 << 256) - 1
 
@@ -140,7 +156,16 @@ INTRINSIC_DECLARATIONS = [
     'declare float @llvm.round.f32(float)',
     'declare double @llvm.round.f64(double)',
     'declare <4 x i32> @llvm.masked.load.v4i32.p0(ptr, i32, <4 x i1>, <4 x i32>)',
+] + [f'declare <{count} x i{width}> @llvm.{operation}.v{count}i{width}(<{count} x i{width}>, <{count} x i{width}>)'
+     for operation in ('uadd.sat', 'sadd.sat', 'usub.sat', 'ssub.sat')
+     for width, count in ((8, 16), (8, 32), (16, 8), (16, 16))] + [
     'declare <8 x i32> @llvm.masked.load.v8i32.p0(ptr, i32, <8 x i1>, <8 x i32>)',
+    'declare <8 x float> @llvm.masked.gather.v8f32.v8p0(<8 x ptr>, i32, <8 x i1>, <8 x float>)',
+    'declare <4 x float> @llvm.masked.gather.v4f32.v4p0(<4 x ptr>, i32, <4 x i1>, <4 x float>)',
+    'declare <4 x double> @llvm.masked.gather.v4f64.v4p0(<4 x ptr>, i32, <4 x i1>, <4 x double>)',
+    'declare <2 x double> @llvm.masked.gather.v2f64.v2p0(<2 x ptr>, i32, <2 x i1>, <2 x double>)',
+    'declare <16 x i8> @llvm.aarch64.crypto.aesimc(<16 x i8>)',
+    'declare i128 @llvm.aarch64.neon.pmull64(i64, i64)',
     'declare void @llvm.masked.store.v4i32.p0(<4 x i32>, ptr, i32, <4 x i1>)',
     'declare void @llvm.masked.store.v8i32.p0(<8 x i32>, ptr, i32, <8 x i1>)',
 ]
@@ -300,6 +325,33 @@ def analyze(function, ins, state):
         for operand in args[1:]:
             _known(function, ins, state, operand, bits if op != 'vphminposuw' else 128)
         _define(function, ins, state, args[0], (1 << bits) - 1, bits)
+    elif op in PACKED_SAT or op in HORIZONTAL:
+        _define(function, ins, state, args[0], _binary_mask(function, ins, state, bits), bits)
+    elif op in MXCSR:
+        function.read_operand(ins, state, args[0])
+        if op == 'vstmxcsr':
+            function.define(ins, state, args[0])
+    elif op in GATHER:
+        lane_bits, _element = GATHER[op]
+        if len(args) != 3 or args[1].type != X86_OP_MEM or not args[1].mem.index:
+            function.fail(ins, 'gather requires a memory operand with a vector index and a mask register')
+        base = ins.reg_name(args[1].mem.base)
+        if base:
+            function.check_register(ins, state, *gpr_alias(base))
+        mask = _known(function, ins, state, args[2], bits)
+        destination = _known(function, ins, state, args[0], bits)
+        selected = 0
+        for lane in range(bits // lane_bits):
+            if (mask >> (lane * 32 + 31)) & 1:
+                selected |= ((1 << lane_bits) - 1) << (lane * lane_bits)
+        _define(function, ins, state, args[0], destination | selected, bits)
+        # The whole mask register is cleared once the gather completes without a fault.
+        _define(function, ins, state, args[2], (1 << bits) - 1, bits)
+    elif op in AES:
+        _define(function, ins, state, args[0], _known(function, ins, state, args[1], 128), 128)
+    elif op in PCLMUL:
+        known = _known(function, ins, state, args[0], 128) & _known(function, ins, state, args[1], 128)
+        _define(function, ins, state, args[0], known, 128)
     elif op in MASKED:
         register = args[0] if _register(ins, args[0]) is not None else args[2]
         mask_bits = register.size * 8
@@ -536,13 +588,14 @@ def _lower_odd(function, ins, bits, op):
         value = function.emit(f'zext i16 {best} to i32')
         value = function.emit(f'or i32 {value}, {function.emit(f"shl i32 {index}, 16")}')
         return function.emit(f'zext i32 {value} to i128')
-    if op == 'vpmulhw':
+    if op in ('vpmulhw', 'vpmulhuw'):
         count = bits // 16
         kind = f'<{count} x i16>'
         left = function.emit(f'bitcast i{bits} {_read(function, ins, ins.operands[1], bits)} to {kind}')
         right = function.emit(f'bitcast i{bits} {_read(function, ins, ins.operands[2], bits)} to {kind}')
-        left32 = function.emit(f'sext {kind} {left} to <{count} x i32>')
-        right32 = function.emit(f'sext {kind} {right} to <{count} x i32>')
+        extend = 'sext' if op == 'vpmulhw' else 'zext'
+        left32 = function.emit(f'{extend} {kind} {left} to <{count} x i32>')
+        right32 = function.emit(f'{extend} {kind} {right} to <{count} x i32>')
         product = function.emit(f'mul <{count} x i32> {left32}, {right32}')
         splat = ', '.join(['i32 16'] * count)
         high = function.emit(f'lshr <{count} x i32> {product}, <{splat}>')
@@ -567,6 +620,94 @@ def _lower_odd(function, ins, bits, op):
         part = function.emit(f'shl i{bits} {part}, {group * 64}')
         result = function.emit(f'or i{bits} {result}, {part}')
     return result
+
+
+def gpr_alias(name):
+    """The canonical register, width and shift of a GPR name (the memory-operand path in
+    compiler.py owns this table; a gather's index is a vector, so it cannot go through it)."""
+    import compiler
+    if name not in compiler.ALIASES:
+        raise KeyError(name)
+    return compiler.ALIASES[name]
+
+
+def _lower_gather(function, ins, bits, op):
+    """VGATHERDPS: a masked load per lane; the mask register is cleared afterwards. The mask's
+    sign bit selects a lane, and unselected lanes keep the destination's previous value."""
+    lane_bits, element = GATHER[op]
+    count = bits // lane_bits
+    memory = ins.operands[1].mem
+    base = function.load(ins.reg_name(memory.base))
+    index = function.emit(f'bitcast i{bits} {_vector_value(function, ins.reg_name(memory.index), bits)} to <{count} x i32>')
+    mask = function.emit(f'bitcast i{bits} {_read(function, ins, ins.operands[2], bits)} to <{count} x i32>')
+    previous = function.emit(f'bitcast i{bits} {_read(function, ins, ins.operands[0], bits)} to <{count} x {element}>')
+    active = function.emit(f'icmp slt <{count} x i32> {mask}, zeroinitializer')
+    pointers = 'zeroinitializer'
+    for lane in range(count):
+        offset = function.emit(f'extractelement <{count} x i32> {index}, i32 {lane}')
+        offset = function.emit(f'sext i32 {offset} to i64')
+        scale = memory.scale or 1
+        if scale != 1:
+            offset = function.emit(f'mul i64 {offset}, {scale}')
+        address = function.emit(f'add i64 {base}, {offset}')
+        pointer = function.emit(f'inttoptr i64 {address} to ptr')
+        pointers = function.emit(f'insertelement <{count} x ptr> {pointers}, ptr {pointer}, i32 {lane}')
+    gathered = function.emit(f'call <{count} x {element}> @llvm.masked.gather.v{count}{"f32" if element == "float" else "f64"}.v{count}p0(<{count} x ptr> {pointers}, i32 {lane_bits // 8}, <{count} x i1> {active}, <{count} x {element}> {previous})')
+    return function.emit(f'bitcast <{count} x {element}> {gathered} to i{bits}')
+
+
+def _lower_pclmul(function, ins):
+    """PCLMULQDQ: carry-less multiply of the selected 64-bit halves, AArch64 PMULL."""
+    control = ins.operands[2].imm
+    left = function.emit(f'bitcast i128 {_read(function, ins, ins.operands[0], 128)} to <2 x i64>')
+    right = function.emit(f'bitcast i128 {_read(function, ins, ins.operands[1], 128)} to <2 x i64>')
+    low = function.emit(f'extractelement <2 x i64> {left}, i32 {control & 1}')
+    high = function.emit(f'extractelement <2 x i64> {right}, i32 {(control >> 4) & 1}')
+    result = function.emit(f'call i128 @llvm.aarch64.neon.pmull64(i64 {low}, i64 {high})')
+    return result
+
+
+def _vector_value(function, name, bits):
+    """The value of a named xmm/ymm register (a gather's index is a register, not an operand)."""
+    base = 'xmm' + name[3:] if name.startswith('ymm') else name
+    value = function.load(base, 128)
+    if bits <= 128:
+        return value
+    wide = function.emit(f'zext i128 {value} to i{bits}')
+    upper = function.emit(f'zext i128 {function.load("ymm_hi" + name[3:], 128)} to i{bits}')
+    upper = function.emit(f'shl i{bits} {upper}, 128')
+    return function.emit(f'or i{bits} {wide}, {upper}')
+
+
+def _lower_saturating(function, ins, bits, operation, lane_bits):
+    kind = _veckind(bits, lane_bits, False)
+    count = bits // lane_bits
+    left = function.emit(f'bitcast i{bits} {_read(function, ins, ins.operands[1], bits)} to {kind}')
+    right = function.emit(f'bitcast i{bits} {_read(function, ins, ins.operands[2], bits)} to {kind}')
+    result = function.emit(f'call {kind} @llvm.{operation}.v{count}i{lane_bits}({kind} {left}, {kind} {right})')
+    return function.emit(f'bitcast {kind} {result} to i{bits}')
+
+
+def _lower_horizontal(function, ins, bits, lane_bits, is_float):
+    """PHADDD/PHADDW/VHADDPS/VHADDPD: adjacent lanes are added within each 128-bit lane."""
+    count = bits // lane_bits
+    kind = _veckind(bits, lane_bits, is_float)
+    left = function.emit(f'bitcast i{bits} {_read(function, ins, ins.operands[1], bits)} to {kind}')
+    right = function.emit(f'bitcast i{bits} {_read(function, ins, ins.operands[2], bits)} to {kind}')
+    per_group = 128 // lane_bits
+    evens, odds = [], []
+    for group in range(bits // 128):
+        base = group * per_group
+        for start in (base, count + base):
+            evens += [start + 2 * lane for lane in range(per_group // 2)]
+            odds += [start + 2 * lane + 1 for lane in range(per_group // 2)]
+    even_mask = ', '.join(f'i32 {index}' for index in evens)
+    odd_mask = ', '.join(f'i32 {index}' for index in odds)
+    low = function.emit(f'shufflevector {kind} {left}, {kind} {right}, <{count} x i32> <{even_mask}>')
+    high = function.emit(f'shufflevector {kind} {left}, {kind} {right}, <{count} x i32> <{odd_mask}>')
+    operation = 'fadd' if is_float else 'add'
+    result = function.emit(f'{operation} {kind} {low}, {high}')
+    return function.emit(f'bitcast {kind} {result} to i{bits}')
 
 
 def _lower_minmax(function, ins, bits, lane_bits, is_float, is_min):
@@ -699,6 +840,26 @@ def lower(function, ins):
         _write(function, ins, args[0], _lower_binary(function, ins, bits, llvm_op, lane, False), bits)
     elif op in PACKED_ODDS:
         _write(function, ins, args[0], _lower_odd(function, ins, bits, op), bits)
+    elif op in PACKED_SAT:
+        _write(function, ins, args[0], _lower_saturating(function, ins, bits, *PACKED_SAT[op]), bits)
+    elif op in HORIZONTAL:
+        _write(function, ins, args[0], _lower_horizontal(function, ins, bits, *HORIZONTAL[op]), bits)
+    elif op in MXCSR:
+        # No MXCSR is modelled: the ABI's floating-point policy (round to nearest, subnormals
+        # preserved, exceptions masked) is the architectural default, which is what a save/restore
+        # pair round-trips. `vldmxcsr` is a no-op and `vstmxcsr` stores that default.
+        if op == 'vstmxcsr':
+            function.write(ins, args[0], '8064')
+    elif op in GATHER:
+        _write(function, ins, args[0], _lower_gather(function, ins, bits, op), bits)
+        _write(function, ins, args[2], '0', 128)
+    elif op in AES:
+        kind = '<16 x i8>'
+        source = function.emit(f'bitcast i128 {_read(function, ins, args[1], 128)} to {kind}')
+        result = function.emit(f'call {kind} @llvm.aarch64.crypto.aesimc({kind} {source})')
+        _write(function, ins, args[0], function.emit(f'bitcast {kind} {result} to i128'), 128)
+    elif op in PCLMUL:
+        _write(function, ins, args[0], _lower_pclmul(function, ins), 128)
     elif op in MASKED:
         register = args[0] if _register(ins, args[0]) is not None else args[2]
         lane_bits = register.size * 8

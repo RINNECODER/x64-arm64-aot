@@ -82,3 +82,21 @@ class SystemTests(unittest.TestCase):
         second = self.execute('rdtsc')
         value = lambda registers: registers[0] | (registers[3] << 32)
         self.assertGreaterEqual(value(second), value(first))
+
+    def test_pause_is_a_hint_with_no_state_effect(self):
+        # `pause` is a spin-loop hint: it must leave every register the harness checks untouched.
+        registers = self.execute('pause', rax=0x1234, rcx=0x5678)
+        self.assertEqual(registers[0], 0x1234)
+        self.assertEqual(registers[2], 0x5678)
+
+    def test_monitorx_is_a_hint_with_no_state_effect(self):
+        # `monitorx` only sets up a monitored range for `mwaitx`: it changes no architectural state.
+        registers = self.execute('monitorx', rax=0x1234, rcx=0x5678)
+        self.assertEqual(registers[0], 0x1234)
+        self.assertEqual(registers[2], 0x5678)
+
+    def test_mwaitx_is_a_hint_with_no_state_effect(self):
+        # `mwaitx` waits for a monitored write or a timeout; it changes no architectural state.
+        registers = self.execute('mwaitx', rax=0x1234, rcx=0x5678)
+        self.assertEqual(registers[0], 0x1234)
+        self.assertEqual(registers[2], 0x5678)
