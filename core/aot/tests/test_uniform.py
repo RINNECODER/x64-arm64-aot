@@ -168,6 +168,25 @@ class UniformABITests(unittest.TestCase):
         self.assertIn(f'{0x140000000 + 0x5ff8}', ir)
         self.assertEqual(report['unimplemented_functions'], 0)
 
+    def test_uniform_lea_of_a_function_yields_a_guest_address(self):
+        # A `lea` of a function's address produces a guest-visible pointer. A relocated vtable slot
+        # holds `guest_base + vaddr` and the runtime dispatch table is keyed by it, so naming the
+        # native body (`@sub_...`) instead made the guest compare and dispatch on a host address
+        # (REPORT24 n12). The guest_data test above covers an absolute data address, not a function.
+        # 0x1000: lea rax,[rip+9] ; ret   0x1010: ret
+        code = bytearray(0x11)
+        code[0x00:0x08] = bytes.fromhex('488d0509000000c3')
+        code[0x10] = 0xC3
+        functions = [uniform_function('sub_1000', 0x1000, 0x10),
+                     uniform_function('sub_1010', 0x1010, 1)]
+        raw, contracts = fixture(bytes(code), functions)
+        base = 0x140000000
+        function, ir, _ = self.compile(bytes(raw), dict(contracts, guest_data=True, guest_base=base),
+                                       'sub_1000')
+        registers = RegisterFile()
+        function(ctypes.byref(registers))
+        self.assertEqual(registers.gpr[GPR['rax']], base + 0x1010)
+
     def test_uniform_dynamic_frame_stack_transfer(self):
         # mov r14, rsp ; sub rsp, rax ; mov r12, rdi ; push r12 ; pop r13 ; mov rsp, r14 ; ret.
         # `sub rsp, rax` is a runtime-sized frame, so the push and the pop transfer at the guest rsp
@@ -280,6 +299,27 @@ class UniformABITests(unittest.TestCase):
         registers.gpr[GPR['rdi']] = 42
         function(ctypes.byref(registers))
         self.assertEqual(registers.gpr[GPR['rax']], 42)
+
+    def test_uniform_tail_call_publishes_the_callee_flags(self):
+        # A tail `jmp` is a `call`+`ret` on x86, and `ret` does not restore flags, so the flags the
+        # caller of the root finally sees are the *callee's*. Publishing the root's own analysis
+        # flags instead made every tail-calling function disagree with the reference on the flags
+        # its last flag-setting instruction before the `jmp` produced (REPORT24). The other
+        # uniform tail-call tests assert a register result, so none of them observes the flags.
+        # 0x1000: add edi,5 ; jmp 0x1010    0x1010: xor eax,eax ; ret
+        code = bytearray(0x14)
+        code[0x00:0x08] = bytes.fromhex('83c705e908000000')
+        code[0x10:0x13] = bytes.fromhex('31c0c3')
+        functions = [uniform_function('sub_1000', 0x1000, 0x10),
+                     uniform_function('sub_1010', 0x1010, 3)]
+        raw, contracts = fixture(bytes(code), functions)
+        function, ir, _ = self.compile(raw, contracts, 'sub_1000')
+        self.assertIn('call void @sub_1010(ptr %rf_out)', ir)
+        registers = RegisterFile()
+        function(ctypes.byref(registers))
+        # `add edi,5` with edi=0 yields PF only; the callee's `xor eax,eax` yields ZF|PF.
+        self.assertEqual(registers.flags & 0x44, 0x44)
+        self.assertEqual(registers.flags_mask & 0x44, 0x44)
 
     def test_uniform_frame_repair_tail_call(self):
         # 0x1000: push rbx ; mov rbx,rdi ; jmp 0x1010   0x1010: mov rax,rdi ; ret

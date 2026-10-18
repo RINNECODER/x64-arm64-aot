@@ -41,6 +41,7 @@ sys.path.insert(0, str(REPO / "core" / "aot"))
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import difftest as harness  # noqa: E402
 import real_image  # noqa: E402
+import recorded_heap  # noqa: E402
 import replay  # noqa: E402
 import call_record  # noqa: E402
 
@@ -110,25 +111,37 @@ int main(int argc, char** argv) {
         seg[index].data = malloc(seg[index].filesz ? seg[index].filesz : 1);
         if (seg[index].filesz && fread(seg[index].data, 1, seg[index].filesz, segments) != (size_t)seg[index].filesz) return 4;
     }
-    /* A 4 KiB page can host several segments; map every page once, otherwise MAP_FIXED
-       discards the bytes of a segment that was copied into a page an earlier segment mapped. */
-    uint64_t low = ~0ull, high = 0;
-    for (uint32_t index = 0; index < count; ++index) {
-        uint64_t page = seg[index].vaddr & ~0xfffull;
-        uint64_t end = page + (seg[index].vaddr & 0xfff) + seg[index].memsz;
-        if (page < low) low = page;
-        if (end > high) high = end;
+    /* A 4 KiB page can host several segments, so map every page once, otherwise MAP_FIXED
+       discards the bytes of a segment that was copied into a page an earlier segment mapped. The
+       page set is sparse once the recorded heap is mapped alongside the image (tens of GB apart),
+       so map contiguous runs instead of one union, which would reserve the whole span. The
+       segment list is sorted by vaddr. */
+    uint64_t run_start = 0, run_end = 0;
+    for (uint32_t index = 0; index <= count; ++index) {
+        uint64_t page = 0, end = 0;
+        if (index < count) {
+            page = seg[index].vaddr & ~0xfffull;
+            end = page + (seg[index].vaddr & 0xfff) + seg[index].memsz;
+        }
+        for (uint64_t address = page; index < count && address < end; address += 0x1000) {
+            if (address < run_end) continue;  /* already mapped by an earlier segment */
+            if (address == run_end) { run_end = address + 0x1000; continue; }
+            if (run_end > run_start) {
+                if (mmap((void*)(BASE + run_start), run_end - run_start, 3,
+                         MAP_PRIVATE | MAP_ANONYMOUS | MAP_FIXED, -1, 0) == MAP_FAILED) return 3;
+                mprotect((void*)(BASE + run_start), run_end - run_start, 7);
+            }
+            run_start = address;
+            run_end = address + 0x1000;
+        }
     }
-    if (high > low) {
-        void* region = mmap((void*)(BASE + low), high - low, 3, MAP_PRIVATE | MAP_ANONYMOUS | MAP_FIXED, -1, 0);
-        if (region == MAP_FAILED) return 3;
+    if (run_end > run_start) {
+        if (mmap((void*)(BASE + run_start), run_end - run_start, 3,
+                 MAP_PRIVATE | MAP_ANONYMOUS | MAP_FIXED, -1, 0) == MAP_FAILED) return 3;
+        mprotect((void*)(BASE + run_start), run_end - run_start, 7);
     }
     for (uint32_t index = 0; index < count; ++index)
         if (seg[index].filesz) memcpy((void*)(BASE + seg[index].vaddr), seg[index].data, seg[index].filesz);
-    /* The guest may call or jump anywhere in its own image, not just into the entry page: a page
-       that is mapped read/write but not executable faults on the first instruction fetched from
-       it, which reads as the guest and the reference "agreeing" on a fault. */
-    if (high > low) mprotect((void*)(BASE + low), high - low, 7);
     if (mprotect((void*)(BASE + (address & ~0xfffull)), 0x1000, 7) != 0) return 5;
     struct regs in, out;
     mmap((void*)(BASE+0x70000000), 0x100000, 3, MAP_PRIVATE|MAP_ANONYMOUS|MAP_FIXED, -1, 0);
@@ -453,7 +466,7 @@ def build_arm64_real(ir, directory):
     return directory / "native.dylib"
 
 
-def saturated_memory(rng, size=SCRATCH_SIZE):
+def saturated_memory(rng, size=SCRATCH_SIZE, functions=()):
     """Scratch bytes in which every 8-byte slot names a valid object.
 
     A real heap does not look like random bytes: a field that holds a pointer holds the address of
@@ -461,23 +474,35 @@ def saturated_memory(rng, size=SCRATCH_SIZE):
     the guest loads a garbage address and both runners die on the same wild access, which is
     agreement on undefined behavior rather than a comparison (REPORT22: 73.85 % `both-fault`).
     Seeding every slot with a pointer into this window keeps any such chain valid.
+
+    A share of the slots instead names a function in the closure. A real vtable slot holds a code
+    address, so an indirect call through a loaded slot then reaches a real body in both runners
+    (the reference runs the original bytes at the guest address, the AOT side dispatches to the
+    compiled body) instead of an unresolved target that only faults.
     """
     slots = size // 8
     data = bytearray(size)
     for index in range(slots):
-        struct.pack_into("<Q", data, index * 8, SCRATCH + 8 * rng.randrange(slots))
+        if functions and index % 4 == 3:
+            struct.pack_into("<Q", data, index * 8, BASE + functions[rng.randrange(len(functions))])
+        else:
+            struct.pack_into("<Q", data, index * 8, SCRATCH + 8 * rng.randrange(slots))
     return bytes(data)
 
 
-def realistic_state(rng, segments=(), recorded=None):
+def realistic_state(rng, segments=(), recorded=None, image_share=4, heap_slots=(), functions=()):
     """An entry state whose pointer registers and scratch slots all name mapped objects.
 
     Registers point into the scratch window (mapped by both runners), with a share pointing at the
     real image's writable data so a function can read a real object as well. `recorded` replaces
     them with the GPRs a real run had at this function's entry (the rsp stays the runner's: the
-    recorded one names the real run's stack, which this harness does not map).
+    recorded one names the real run's stack, which this harness does not map). `image_share` of 0
+    keeps every register in the scratch window, and `heap_slots` points them at the real run's
+    recorded heap instead (addresses whose 8-byte content is a mapped pointer). `functions` seeds
+    a share of the scratch slots with closure code addresses, so an indirect call through one of
+    them resolves in both runners.
     """
-    memory = saturated_memory(rng)
+    memory = saturated_memory(rng, functions=functions)
     if recorded is not None:
         registers = {name: recorded.get(name, 0) for name in replay.UNIFORM_GPRS}
         registers["rsp"] = RUNNER_ENTRY_RSP
@@ -489,7 +514,9 @@ def realistic_state(rng, segments=(), recorded=None):
     for index, name in enumerate(replay.UNIFORM_GPRS):
         if name == "rsp":
             continue
-        if writable and index % 4 == 3:
+        if heap_slots:
+            registers[name] = heap_slots[rng.randrange(len(heap_slots))]
+        elif writable and image_share and index % image_share == image_share - 1:
             vaddr, memsz = writable[rng.randrange(len(writable))]
             registers[name] = BASE + vaddr + 8 * rng.randrange(memsz // 8)
         else:
@@ -507,15 +534,25 @@ def runner_fault(completed):
 
 
 def run_case_real(address, seed, directory, profile, plant=None, saturate_segments=False,
-                   recorded=None):
+                   recorded=None, heap=False, model="realistic"):
     """Verify against the real module image: the compiler reads the real eboot and the real module
     profile (guest_data + dispatch), both runners map the real segments at BASE + vaddr with the
     profile's pointer relocations applied, and an indirect call or a tail call into a function
-    outside the closure no longer rejects the function."""
+    outside the closure no longer rejects the function.
+
+    With `heap` the real run's recorded heap pages are mapped in both runners as well, and
+    `saturate_segments` then seeds the image's zero globals with addresses of heap pointer slots
+    instead of addresses in the image's own bytes (see recorded_heap).
+    """
     rng = random.Random(seed)
-    segments = real_image.segments(ELF)
-    segments = real_image.patch(segments, profile.relocations)
-    if saturate_segments:
+    image = real_image.patch(real_image.segments(ELF), profile.relocations)
+    segments = image
+    pages = recorded_heap.load() if heap else {}
+    if pages:
+        segments = image + recorded_heap.segments(pages, image, BASE)
+    if saturate_segments and pages:
+        segments = recorded_heap.saturate(segments, pages, random.Random(seed ^ 0x5EED), BASE)
+    elif saturate_segments:
         segments = real_image.saturate(segments, random.Random(seed ^ 0x5EED),
                                        extra=[(SCRATCH, SCRATCH_SIZE)])
     title = harness.Title(ELF)
@@ -529,7 +566,16 @@ def run_case_real(address, seed, directory, profile, plant=None, saturate_segmen
     dylib = build_arm64_real(ir, directory)
     library = ctypes.CDLL(str(dylib))
     data_ranges = [(vaddr, memsz) for vaddr, _filesz, memsz, _data, _flags in segments]
-    registers, memory = realistic_state(rng, segments, recorded)
+    heap_slots = ()
+    image_share = 4
+    functions = ()
+    if pages and model == "heapregs":
+        heap_slots = recorded_heap.pointer_slots(pages, image, BASE)
+    elif model == "scratch":
+        image_share = 0
+    if model in ("vtables", "heapregs"):
+        functions = sorted(spec["address"] for spec in contracts["functions"])
+    registers, memory = realistic_state(rng, image, recorded, image_share, heap_slots, functions)
     arm = arm_state(dylib, f"sub_{address:x}", registers, memory, image=segments)
     runner = build_runner(directory)
     (directory / "segments.bin").write_bytes(real_image.blob(segments))
@@ -556,7 +602,7 @@ def run_case_real(address, seed, directory, profile, plant=None, saturate_segmen
 
 def _segments(image):
     stream = __import__("io").BytesIO()
-    entries = replay.elf_segments(image)
+    entries = sorted(replay.elf_segments(image))
     stream.write(struct.pack("<I", len(entries)))
     for vaddr, filesz, memsz, data in entries:
         stream.write(struct.pack("<QQQ", vaddr, filesz, memsz))

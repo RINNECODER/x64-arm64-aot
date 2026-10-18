@@ -60,7 +60,7 @@ def blob(segments_list):
     """The x86 runner's segment stream (BASE-relative vaddr, as the synthetic path writes it)."""
     stream = io.BytesIO()
     stream.write(struct.pack("<I", len(segments_list)))
-    for vaddr, filesz, memsz, data, _flags in segments_list:
+    for vaddr, filesz, memsz, data, _flags in sorted(segments_list):
         stream.write(struct.pack("<QQQ", vaddr, filesz, memsz))
         stream.write(data)
     return stream.getvalue()
@@ -97,18 +97,35 @@ def saturate(segments_list, rng, base=BASE, extra=()):
 
 
 def map_segments(segments_list, base=BASE):
-    """Map the union of the segments at BASE + vaddr and copy the bytes in (child process only)."""
+    """Map the union of the segments at BASE + vaddr and copy the bytes in (child process only).
+
+    Sorted by vaddr and mapped as contiguous runs, because the recorded heap puts pages tens of GB
+    from the image and one union mapping would reserve the whole span.
+    """
     if not segments_list:
         return
-    low = min(vaddr & ~(PAGE - 1) for vaddr, _f, _m, _d, _x in segments_list)
-    high = max(vaddr + memsz for vaddr, _f, memsz, _d, _x in segments_list)
     libc = ctypes.CDLL(None)
     libc.mmap.restype = ctypes.c_void_p
     libc.mmap.argtypes = [ctypes.c_void_p, ctypes.c_size_t, ctypes.c_int, ctypes.c_int,
                           ctypes.c_int, ctypes.c_long]
-    pointer = libc.mmap(ctypes.c_void_p(base + low), high - low, 3, 0x02 | 0x1000 | 0x10, -1, 0)
-    if pointer in (None, ctypes.c_void_p(-1).value, (1 << 64) - 1):
-        raise RuntimeError(f"cannot map the real image at {base + low:#x}")
+    pages = set()
+    for vaddr, _filesz, memsz, _data, _flags in segments_list:
+        start = vaddr & ~(PAGE - 1)
+        for address in range(start, start + (vaddr & (PAGE - 1)) + memsz, PAGE):
+            pages.add(address)
+    run_start = run_end = None
+    for address in sorted(pages) + [None]:
+        if address is not None and run_end is not None and address == run_end:
+            run_end = address + PAGE
+            continue
+        if run_start is not None:
+            pointer = libc.mmap(ctypes.c_void_p(base + run_start), run_end - run_start, 3,
+                                0x02 | 0x1000 | 0x10, -1, 0)
+            if pointer in (None, ctypes.c_void_p(-1).value, (1 << 64) - 1):
+                raise RuntimeError(f"cannot map the image at {base + run_start:#x}")
+        if address is None:
+            break
+        run_start, run_end = address, address + PAGE
     for vaddr, filesz, _memsz, data, _flags in segments_list:
         if filesz:
             ctypes.memmove(base + vaddr, data, filesz)
